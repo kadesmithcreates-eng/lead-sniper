@@ -1,0 +1,1233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lead Sniper</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:         #07090c;
+    --surface:    #0d1117;
+    --surface2:   #111820;
+    --surface3:   #161e28;
+    --border:     #1e2d3d;
+    --border2:    #253444;
+    --accent:     #e8530a;
+    --accent-dim: rgba(232, 83, 10, 0.10);
+    --accent-glow:rgba(232, 83, 10, 0.20);
+    --green:      #00d26a;
+    --red:        #ff3c3c;
+    --yellow:     #ffb800;
+    --text:       #cdd9e5;
+    --muted:      #4d6070;
+    --muted2:     #7a93a8;
+    --mono:       'Courier New', 'Courier', monospace;
+    --sans:       -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+    --radius:     2px;
+    --bracket:    14px;
+  }
+
+  html { font-size: 14px; }
+
+  body {
+    font-family: var(--sans);
+    background-color: var(--bg);
+    background-image:
+      linear-gradient(rgba(30,45,61,0.4) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(30,45,61,0.4) 1px, transparent 1px);
+    background-size: 48px 48px;
+    color: var(--text);
+    min-height: 100vh;
+    line-height: 1.5;
+  }
+
+  /* ── CORNER BRACKET CARDS ────────────────────────────── */
+  .card {
+    position: relative;
+    background: var(--surface);
+    border: 1px solid var(--border);
+  }
+
+  .card::before, .card::after,
+  .card .corner-br, .card .corner-tl-inner {
+    content: '';
+    position: absolute;
+    width: var(--bracket);
+    height: var(--bracket);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .card::before {
+    top: -1px; left: -1px;
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+  }
+
+  .card::after {
+    bottom: -1px; right: -1px;
+    border-bottom: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+  }
+
+  /* ── LOGIN ───────────────────────────────────────────── */
+  #login-screen {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    padding: 24px;
+  }
+
+  .login-card {
+    width: 100%;
+    max-width: 360px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 48px 40px;
+    position: relative;
+  }
+
+  .login-card::before {
+    content: '';
+    position: absolute;
+    top: -1px; left: -1px;
+    width: var(--bracket); height: var(--bracket);
+    border-top: 2px solid var(--accent);
+    border-left: 2px solid var(--accent);
+  }
+
+  .login-card::after {
+    content: '';
+    position: absolute;
+    bottom: -1px; right: -1px;
+    width: var(--bracket); height: var(--bracket);
+    border-bottom: 2px solid var(--accent);
+    border-right: 2px solid var(--accent);
+  }
+
+  .login-wordmark {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 28px;
+  }
+
+  .reticle {
+    width: 32px;
+    height: 32px;
+    position: relative;
+    flex-shrink: 0;
+  }
+
+  .reticle svg { width: 100%; height: 100%; }
+
+  .wordmark-text {
+    font-family: var(--mono);
+    font-size: 20px;
+    font-weight: 700;
+    letter-spacing: 0.18em;
+    color: var(--text);
+    line-height: 1;
+  }
+
+  .wordmark-text span { color: var(--accent); }
+
+  .login-sub {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 32px;
+  }
+
+  .login-card input {
+    width: 100%;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 14px;
+    padding: 11px 14px;
+    outline: none;
+    border-radius: var(--radius);
+    margin-bottom: 10px;
+    transition: border-color 0.2s;
+    letter-spacing: 0.05em;
+  }
+
+  .login-card input:focus { border-color: var(--accent); }
+
+  .btn-primary {
+    width: 100%;
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    padding: 12px;
+    font-family: var(--mono);
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    border-radius: var(--radius);
+  }
+
+  .btn-primary:hover { opacity: 0.85; }
+
+  .login-error {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--red);
+    margin-top: 10px;
+    letter-spacing: 0.05em;
+    display: none;
+  }
+
+  /* ── APP LAYOUT ──────────────────────────────────────── */
+  #app { display: none; }
+
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 28px;
+    height: 56px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+  }
+
+  .topbar-logo {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .topbar-reticle { width: 22px; height: 22px; }
+  .topbar-reticle svg { width: 100%; height: 100%; }
+
+  .topbar-name {
+    font-family: var(--mono);
+    font-size: 16px;
+    font-weight: 700;
+    letter-spacing: 0.2em;
+    color: var(--text);
+    text-transform: uppercase;
+  }
+
+  .topbar-name span { color: var(--accent); }
+
+  .topbar-right { display: flex; align-items: center; gap: 12px; }
+
+  .status-badge {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    padding: 5px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    color: var(--muted2);
+  }
+
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--muted);
+    flex-shrink: 0;
+  }
+
+  .status-dot.alive {
+    background: var(--green);
+    box-shadow: 0 0 8px var(--green);
+    animation: ping 2s ease-in-out infinite;
+  }
+
+  .status-dot.dead { background: var(--red); box-shadow: 0 0 8px var(--red); }
+
+  @keyframes ping {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+  }
+
+  .btn-signout {
+    background: none;
+    border: 1px solid var(--border2);
+    color: var(--muted);
+    padding: 5px 14px;
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+    border-radius: var(--radius);
+  }
+
+  .btn-signout:hover { color: var(--text); border-color: var(--border2); }
+
+  /* ── MAIN ────────────────────────────────────────────── */
+  .main {
+    max-width: 1140px;
+    margin: 0 auto;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  .section-label {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.25em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .section-label::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: var(--border);
+  }
+
+  /* ── STAT CARDS ──────────────────────────────────────── */
+  .stats-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+
+  .stat-card {
+    padding: 20px 18px;
+  }
+
+  .stat-eyebrow {
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+
+  .stat-value {
+    font-family: var(--mono);
+    font-size: 28px;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+    font-variant-numeric: tabular-nums;
+    line-height: 1;
+    margin-bottom: 6px;
+  }
+
+  .stat-value.green { color: var(--green); }
+  .stat-value.red { color: var(--red); }
+  .stat-value.orange { color: var(--accent); }
+
+  .stat-sub {
+    font-size: 11px;
+    color: var(--muted);
+    line-height: 1.4;
+  }
+
+  /* ── TWO COL ─────────────────────────────────────────── */
+  .two-col {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+  }
+
+  /* ── CARD HEADER ─────────────────────────────────────── */
+  .card-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .card-title {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--muted2);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .badge {
+    background: var(--accent-dim);
+    border: 1px solid rgba(232,83,10,0.25);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    padding: 1px 7px;
+    border-radius: 2px;
+  }
+
+  .card-body { padding: 16px 18px; }
+
+  /* ── INPUTS ──────────────────────────────────────────── */
+  .add-row { display: flex; gap: 8px; margin-bottom: 14px; }
+
+  .add-row input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-radius: var(--radius);
+    padding: 9px 12px;
+    color: var(--text);
+    font-family: var(--mono);
+    font-size: 12px;
+    outline: none;
+    transition: border-color 0.2s;
+    letter-spacing: 0.03em;
+  }
+
+  .add-row input:focus { border-color: var(--accent); }
+  .add-row input::placeholder { color: var(--muted); }
+
+  .btn-add {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: var(--radius);
+    padding: 9px 16px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: opacity 0.2s;
+  }
+
+  .btn-add:hover { opacity: 0.85; }
+
+  .btn-import {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    color: var(--muted2);
+    padding: 5px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+    border-radius: var(--radius);
+  }
+
+  .btn-import:hover { border-color: var(--accent); color: var(--accent); }
+  .btn-import:disabled { opacity: 0.4; cursor: not-allowed; }
+
+  /* ── TAGS (keywords) ─────────────────────────────────── */
+  .tag-list { display: flex; flex-wrap: wrap; gap: 7px; min-height: 28px; }
+
+  .tag {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    background: var(--accent-dim);
+    border: 1px solid rgba(232,83,10,0.25);
+    color: var(--accent);
+    padding: 4px 10px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    border-radius: var(--radius);
+    text-transform: uppercase;
+  }
+
+  .tag button {
+    background: none;
+    border: none;
+    color: var(--accent);
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    opacity: 0.5;
+    transition: opacity 0.2s;
+    padding: 0;
+  }
+
+  .tag button:hover { opacity: 1; }
+
+  /* ── GROUP LIST ──────────────────────────────────────── */
+  .group-list { display: flex; flex-direction: column; gap: 7px; max-height: 320px; overflow-y: auto; }
+
+  .group-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    padding: 9px 12px;
+    border-radius: var(--radius);
+  }
+
+  .group-info { flex: 1; min-width: 0; }
+
+  .group-name {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .group-url {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .group-checked {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    letter-spacing: 0.03em;
+  }
+
+  .btn-remove {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 9px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    cursor: pointer;
+    transition: border-color 0.2s, color 0.2s;
+    border-radius: var(--radius);
+    flex-shrink: 0;
+  }
+
+  .btn-remove:hover { border-color: var(--red); color: var(--red); }
+
+  /* ── IMPORT STATUS ───────────────────────────────────── */
+  #import-status {
+    display: none;
+    background: var(--surface2);
+    border: 1px solid var(--border2);
+    border-left: 3px solid var(--accent);
+    padding: 9px 12px;
+    font-family: var(--mono);
+    font-size: 11px;
+    color: var(--muted2);
+    letter-spacing: 0.05em;
+    margin-bottom: 12px;
+    border-radius: var(--radius);
+  }
+
+  /* ── MATCH CARDS ─────────────────────────────────────── */
+  .match-list { display: flex; flex-direction: column; gap: 10px; }
+
+  .match-card {
+    position: relative;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    padding: 14px 16px;
+    border-radius: var(--radius);
+  }
+
+  .match-top {
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+  }
+
+  .match-group {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--text);
+  }
+
+  .match-time {
+    font-family: var(--mono);
+    font-size: 10px;
+    color: var(--muted);
+    white-space: nowrap;
+    flex-shrink: 0;
+    letter-spacing: 0.05em;
+  }
+
+  .match-keywords { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 8px; }
+
+  .kw-chip {
+    background: var(--accent-dim);
+    border: 1px solid rgba(232,83,10,0.2);
+    color: var(--accent);
+    font-family: var(--mono);
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 2px 8px;
+    border-radius: 1px;
+  }
+
+  .match-summary {
+    font-size: 12px;
+    color: var(--muted2);
+    margin-bottom: 10px;
+    line-height: 1.5;
+  }
+
+  .match-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--mono);
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--accent);
+    text-decoration: none;
+    transition: opacity 0.2s;
+  }
+
+  .match-link:hover { opacity: 0.7; }
+
+  /* ── TABS ────────────────────────────────────────────── */
+  .tabs { display: flex; gap: 4px; }
+
+  .tab {
+    background: none;
+    border: 1px solid transparent;
+    color: var(--muted);
+    padding: 5px 14px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.12em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: all 0.15s;
+    border-radius: var(--radius);
+  }
+
+  .tab.active {
+    background: var(--surface2);
+    border-color: var(--border2);
+    color: var(--text);
+  }
+
+  .tab-panel { display: none; }
+  .tab-panel.active { display: block; }
+
+  /* ── LOGS ────────────────────────────────────────────── */
+  .log-list {
+    font-family: var(--mono);
+    font-size: 11px;
+    max-height: 300px;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--bg);
+    padding: 12px;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+  }
+
+  .log-line {
+    display: flex;
+    gap: 12px;
+    padding: 2px 0;
+    line-height: 1.6;
+  }
+
+  .log-time { color: var(--muted); flex-shrink: 0; letter-spacing: 0.03em; }
+  .log-level { flex-shrink: 0; font-weight: 700; width: 38px; letter-spacing: 0.05em; }
+  .log-level.info  { color: #3b82f6; }
+  .log-level.warn  { color: var(--yellow); }
+  .log-level.error { color: var(--red); }
+  .log-msg { color: var(--text); word-break: break-word; opacity: 0.85; }
+
+  /* ── REFRESH BTN ─────────────────────────────────────── */
+  .btn-refresh {
+    background: none;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 5px 12px;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.1em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: color 0.2s, border-color 0.2s;
+    border-radius: var(--radius);
+  }
+
+  .btn-refresh:hover { color: var(--text); border-color: var(--border2); }
+
+  /* ── EMPTY STATE ─────────────────────────────────────── */
+  .empty {
+    font-family: var(--mono);
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: var(--muted);
+    padding: 8px 0;
+  }
+
+  /* ── SCROLLBAR ───────────────────────────────────────── */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 2px; }
+
+  @media (max-width: 768px) {
+    .stats-row { grid-template-columns: repeat(2, 1fr); }
+    .two-col { grid-template-columns: 1fr; }
+  }
+
+  @media (max-width: 540px) {
+    html { font-size: 13px; }
+
+    /* topbar */
+    .topbar { padding: 0 14px; height: 52px; }
+    .topbar-name { display: none; }
+    .status-badge { padding: 5px 10px; font-size: 10px; gap: 6px; }
+    .btn-signout { padding: 5px 10px; font-size: 10px; }
+
+    /* login */
+    .login-card { padding: 36px 24px; }
+
+    /* main content */
+    .main { padding: 16px 12px; gap: 14px; }
+
+    /* stat cards */
+    .stat-card { padding: 16px 14px; }
+    .stat-value { font-size: 22px; }
+
+    /* card headers */
+    .card-header { padding: 12px 14px; flex-wrap: wrap; gap: 8px; }
+    .card-body { padding: 14px 14px; }
+
+    /* add row */
+    .add-row { flex-wrap: nowrap; }
+    .add-row input { min-width: 0; font-size: 13px; }
+
+    /* group items — hide last-checked timestamp, shrink remove btn */
+    .group-checked { display: none; }
+    .group-item { padding: 8px 10px; gap: 8px; }
+    .btn-remove { padding: 4px 8px; font-size: 10px; }
+
+    /* match cards */
+    .match-card { padding: 12px 13px; }
+    .match-top { flex-wrap: wrap; gap: 4px; }
+
+    /* log lines — allow wrap, smaller timestamp */
+    .log-list { font-size: 10px; padding: 10px; }
+    .log-line { flex-wrap: wrap; gap: 4px; }
+    .log-time { font-size: 10px; }
+    .log-level { width: auto; }
+
+    /* tabs */
+    .tab { padding: 5px 10px; font-size: 10px; }
+
+    /* import btn */
+    .btn-import { font-size: 10px; padding: 5px 10px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN ─────────────────────────────────────────────── -->
+<div id="login-screen">
+  <div class="login-card">
+    <div class="login-wordmark">
+      <div class="reticle">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="10" stroke="#e8530a" stroke-width="1.5"/>
+          <circle cx="16" cy="16" r="3" fill="#e8530a"/>
+          <line x1="16" y1="2" x2="16" y2="8" stroke="#e8530a" stroke-width="1.5"/>
+          <line x1="16" y1="24" x2="16" y2="30" stroke="#e8530a" stroke-width="1.5"/>
+          <line x1="2" y1="16" x2="8" y2="16" stroke="#e8530a" stroke-width="1.5"/>
+          <line x1="24" y1="16" x2="30" y2="16" stroke="#e8530a" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="wordmark-text"><span>LEAD</span> SNIPER</div>
+    </div>
+    <div class="login-sub">// SECURE ACCESS REQUIRED</div>
+    <input type="password" id="login-pw" placeholder="ENTER PASSWORD" autocomplete="current-password" />
+    <button class="btn-primary" onclick="login()">AUTHENTICATE</button>
+    <div class="login-error" id="login-err">// ACCESS DENIED — WRONG PASSWORD</div>
+  </div>
+</div>
+
+<!-- ── DASHBOARD ──────────────────────────────────────────── -->
+<div id="app">
+  <div class="topbar">
+    <div class="topbar-logo">
+      <div class="topbar-reticle">
+        <svg viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="16" cy="16" r="10" stroke="#e8530a" stroke-width="1.5"/>
+          <circle cx="16" cy="16" r="3" fill="#e8530a"/>
+          <line x1="16" y1="2" x2="16" y2="8" stroke="#e8530a" stroke-width="1.5"/>
+          <line x1="16" y1="24" x2="16" y2="30" stroke="#e8530a" stroke-width="1.5"/>
+          <line x1="2" y1="16" x2="8" y2="16" stroke="#e8530a" stroke-width="1.5"/>
+          <line x1="24" y1="16" x2="30" y2="16" stroke="#e8530a" stroke-width="1.5"/>
+        </svg>
+      </div>
+      <div class="topbar-name"><span>LEAD</span> SNIPER</div>
+    </div>
+    <div class="topbar-right">
+      <div class="status-badge">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">LOADING</span>
+      </div>
+      <button class="btn-signout" onclick="logout()">SIGN OUT</button>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- Stat Row -->
+    <div>
+      <div class="section-label">System Status</div>
+      <div class="stats-row">
+        <div class="card stat-card">
+          <div class="stat-eyebrow">Session</div>
+          <div class="stat-value" id="stat-session">—</div>
+          <div class="stat-sub" id="stat-heartbeat">awaiting signal</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-eyebrow">Last Hit</div>
+          <div class="stat-value orange" id="stat-last-match">—</div>
+          <div class="stat-sub">most recent keyword match</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-eyebrow">Total Hits</div>
+          <div class="stat-value" id="stat-total">0</div>
+          <div class="stat-sub">all-time matches found</div>
+        </div>
+        <div class="card stat-card">
+          <div class="stat-eyebrow">Last Sweep</div>
+          <div class="stat-value orange" id="stat-sweep">0</div>
+          <div class="stat-sub">matches this sweep</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Keywords + Groups -->
+    <div class="two-col">
+
+      <!-- Keywords -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            Target Keywords
+            <span class="badge" id="kw-count">0</span>
+          </div>
+        </div>
+        <div class="card-body">
+          <div class="add-row">
+            <input type="text" id="kw-input" placeholder="add keyword..." onkeydown="if(event.key==='Enter')addKeyword()" />
+            <button class="btn-add" onclick="addKeyword()">ADD</button>
+          </div>
+          <div class="tag-list" id="kw-list">
+            <span class="empty">// no keywords configured</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Groups -->
+      <div class="card">
+        <div class="card-header">
+          <div class="card-title">
+            Monitored Groups
+            <span class="badge" id="grp-count">0</span>
+          </div>
+          <button class="btn-import" id="btn-import" onclick="importGroups()">
+            <span id="import-icon">⚡</span> IMPORT ALL
+          </button>
+        </div>
+        <div class="card-body">
+          <div id="import-status"></div>
+          <div class="add-row">
+            <input type="text" id="grp-input" placeholder="https://facebook.com/groups/..." onkeydown="if(event.key==='Enter')addGroup()" />
+            <button class="btn-add" onclick="addGroup()">ADD</button>
+          </div>
+          <div class="group-list" id="grp-list">
+            <span class="empty">// no groups added — use IMPORT ALL</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Cookie Refresh -->
+    <div class="card">
+      <div class="card-header">
+        <div class="card-title">Session Cookies <span class="badge" id="cookie-badge">—</span></div>
+        <span id="cookie-status-text" style="font-family:var(--mono);font-size:10px;color:var(--muted);letter-spacing:0.08em;"></span>
+      </div>
+      <div class="card-body">
+        <div style="font-family:var(--mono);font-size:10px;color:var(--muted2);letter-spacing:0.05em;margin-bottom:10px;">
+          // PASTE COOKIE-EDITOR JSON EXPORT BELOW TO REFRESH SESSION
+        </div>
+        <textarea id="cookie-input" placeholder='[{"name":"c_user","value":"..."}]' style="width:100%;height:90px;background:var(--surface2);border:1px solid var(--border2);border-radius:var(--radius);color:var(--text);font-family:var(--mono);font-size:11px;padding:10px 12px;outline:none;resize:vertical;letter-spacing:0.02em;transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border2)'"></textarea>
+        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+          <button class="btn-add" onclick="saveCookies()" style="width:auto;padding:9px 20px;">SAVE COOKIES</button>
+          <span id="cookie-msg" style="font-family:var(--mono);font-size:11px;color:var(--muted);letter-spacing:0.05em;"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Matches + Logs -->
+    <div class="card">
+      <div class="card-header">
+        <div class="tabs">
+          <button class="tab active" onclick="switchTab('matches', this)">HITS</button>
+          <button class="tab" onclick="switchTab('logs', this)">SYSTEM LOG</button>
+        </div>
+        <button class="btn-refresh" onclick="loadAll()">↻ REFRESH</button>
+      </div>
+      <div class="card-body">
+
+        <div class="tab-panel active" id="panel-matches">
+          <div class="match-list" id="match-list">
+            <span class="empty">// no hits yet — monitor is scanning</span>
+          </div>
+        </div>
+
+        <div class="tab-panel" id="panel-logs">
+          <div class="log-list" id="log-list">
+            <span class="empty">// awaiting log output</span>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+  const API = '';
+  let token = localStorage.getItem('ls_token') || '';
+
+  // ── Auth ──────────────────────────────────────────────
+  async function login() {
+    const pw = document.getElementById('login-pw').value;
+    const err = document.getElementById('login-err');
+    try {
+      const r = await fetch(`${API}/api/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: pw })
+      });
+      if (!r.ok) { err.style.display = 'block'; return; }
+      const { token: t } = await r.json();
+      token = t;
+      localStorage.setItem('ls_token', t);
+      err.style.display = 'none';
+      showApp();
+    } catch { err.style.display = 'block'; }
+  }
+
+  function logout() {
+    localStorage.removeItem('ls_token');
+    token = '';
+    document.getElementById('app').style.display = 'none';
+    document.getElementById('login-screen').style.display = 'flex';
+  }
+
+  document.getElementById('login-pw').addEventListener('keydown', e => { if (e.key === 'Enter') login(); });
+
+  function get(url) {
+    return fetch(`${API}${url}`, { headers: { Authorization: `Bearer ${token}` } }).then(r => {
+      if (r.status === 401) { logout(); return null; }
+      return r.json();
+    });
+  }
+
+  function post(url, body) {
+    return fetch(`${API}${url}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify(body)
+    }).then(r => r.json());
+  }
+
+  function del(url) {
+    return fetch(`${API}${url}`, { method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }).then(r => r.json());
+  }
+
+  // ── App ───────────────────────────────────────────────
+  function showApp() {
+    document.getElementById('login-screen').style.display = 'none';
+    document.getElementById('app').style.display = 'block';
+    loadAll();
+    setInterval(loadStatus, 15000);
+    setInterval(loadAll, 60000);
+  }
+
+  async function loadAll() {
+    await Promise.all([loadStatus(), loadKeywords(), loadGroups(), loadMatches(), loadLogs(), loadCookieStatus()]);
+  }
+
+  // ── Status ────────────────────────────────────────────
+  async function loadStatus() {
+    const s = await get('/api/status');
+    if (!s) return;
+    const dot = document.getElementById('status-dot');
+    const txt = document.getElementById('status-text');
+    const sess = document.getElementById('stat-session');
+
+    if (s.session_alive) {
+      dot.className = 'status-dot alive';
+      txt.textContent = 'ONLINE';
+      sess.textContent = 'ONLINE';
+      sess.className = 'stat-value green';
+    } else {
+      dot.className = 'status-dot dead';
+      txt.textContent = 'OFFLINE';
+      sess.textContent = 'OFFLINE';
+      sess.className = 'stat-value red';
+    }
+
+    document.getElementById('stat-heartbeat').textContent =
+      s.last_heartbeat ? 'last ping ' + timeAgo(s.last_heartbeat) : 'no signal yet';
+
+    document.getElementById('stat-last-match').textContent =
+      s.last_post_found ? timeAgo(s.last_post_found) : 'none yet';
+
+    document.getElementById('stat-total').textContent = s.total_matches || 0;
+    document.getElementById('stat-sweep').textContent = s.current_sweep_posts || 0;
+  }
+
+  // ── Keywords ──────────────────────────────────────────
+  async function loadKeywords() {
+    const kws = await get('/api/keywords');
+    if (!kws) return;
+    document.getElementById('kw-count').textContent = kws.length;
+    const list = document.getElementById('kw-list');
+    if (!kws.length) { list.innerHTML = '<span class="empty">// no keywords configured</span>'; return; }
+    list.innerHTML = kws.map(k => `
+      <div class="tag">
+        ${esc(k.keyword)}
+        <button onclick="removeKeyword(${k.id})" title="Remove">×</button>
+      </div>
+    `).join('');
+  }
+
+  async function addKeyword() {
+    const input = document.getElementById('kw-input');
+    const kw = input.value.trim();
+    if (!kw) return;
+    await post('/api/keywords', { keyword: kw });
+    input.value = '';
+    await loadKeywords();
+  }
+
+  async function removeKeyword(id) {
+    await del(`/api/keywords/${id}`);
+    await loadKeywords();
+  }
+
+  // ── Groups ────────────────────────────────────────────
+  async function loadGroups() {
+    const groups = await get('/api/groups');
+    if (!groups) return;
+    document.getElementById('grp-count').textContent = groups.length;
+    const list = document.getElementById('grp-list');
+    if (!groups.length) { list.innerHTML = '<span class="empty">// no groups — use IMPORT ALL</span>'; return; }
+    list.innerHTML = groups.map(g => `
+      <div class="group-item">
+        <div class="group-info">
+          <div class="group-name">${esc(g.name || 'Group ' + g.id)}</div>
+          <div class="group-url">${esc(g.url)}</div>
+        </div>
+        <div class="group-checked">${g.last_checked ? timeAgo(g.last_checked) : 'pending'}</div>
+        <button class="btn-remove" onclick="removeGroup(${g.id})">DEL</button>
+      </div>
+    `).join('');
+  }
+
+  async function addGroup() {
+    const input = document.getElementById('grp-input');
+    const url = input.value.trim();
+    if (!url) return;
+    const r = await post('/api/groups', { url });
+    if (!r.success) { alert(r.error); return; }
+    input.value = '';
+    await loadGroups();
+  }
+
+  async function removeGroup(id) {
+    if (!confirm('Remove this group from monitoring?')) return;
+    await del(`/api/groups/${id}`);
+    await loadGroups();
+  }
+
+  // ── Import groups ─────────────────────────────────────
+  let importPollInterval = null;
+
+  async function importGroups() {
+    const btn = document.getElementById('btn-import');
+    const icon = document.getElementById('import-icon');
+    const statusEl = document.getElementById('import-status');
+
+    btn.disabled = true;
+    icon.textContent = '⏳';
+    statusEl.style.display = 'block';
+    statusEl.textContent = '// SCANNING FACEBOOK — PLEASE WAIT 30–60 SECONDS...';
+
+    try { await post('/api/groups/scrape', {}); } catch (e) {
+      statusEl.textContent = '// ERROR: ' + e.message;
+      btn.disabled = false; icon.textContent = '⚡'; return;
+    }
+
+    importPollInterval = setInterval(async () => {
+      const status = await get('/api/groups/scrape/status');
+      if (!status) return;
+      if (!status.inProgress) {
+        clearInterval(importPollInterval);
+        await loadGroups();
+        const groups = await get('/api/groups');
+        statusEl.textContent = `// IMPORT COMPLETE — ${groups ? groups.length : '?'} GROUPS NOW MONITORED`;
+        btn.disabled = false; icon.textContent = '⚡';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 6000);
+      }
+    }, 3000);
+  }
+
+  // ── Matches ───────────────────────────────────────────
+  async function loadMatches() {
+    const matches = await get('/api/matches');
+    if (!matches) return;
+    const list = document.getElementById('match-list');
+    if (!matches.length) { list.innerHTML = '<span class="empty">// no hits yet — monitor is scanning</span>'; return; }
+    list.innerHTML = matches.map(m => `
+      <div class="match-card">
+        <div class="match-top">
+          <div class="match-group">${esc(m.group_name || 'Unknown Group')}</div>
+          <div class="match-time">${timeAgo(m.notified_at)}</div>
+        </div>
+        <div class="match-keywords">
+          ${m.matched_keywords.split(',').map(k => `<span class="kw-chip">${esc(k.trim())}</span>`).join('')}
+        </div>
+        <div class="match-summary">${esc(m.summary)}</div>
+        <a class="match-link" href="${esc(m.post_url)}" target="_blank" rel="noopener">VIEW POST →</a>
+      </div>
+    `).join('');
+  }
+
+  // ── Logs ──────────────────────────────────────────────
+  async function loadLogs() {
+    const logs = await get('/api/logs');
+    if (!logs) return;
+    const list = document.getElementById('log-list');
+    if (!logs.length) { list.innerHTML = '<span class="empty">// awaiting log output</span>'; return; }
+    list.innerHTML = logs.map(l => `
+      <div class="log-line">
+        <span class="log-time">${formatTime(l.created_at)}</span>
+        <span class="log-level ${l.level}">${l.level.slice(0,4).toUpperCase()}</span>
+        <span class="log-msg">${esc(l.message)}</span>
+      </div>
+    `).join('');
+  }
+
+  // ── Cookies ───────────────────────────────────────────
+  async function loadCookieStatus() {
+    const s = await get('/api/cookies/status');
+    if (!s) return;
+    const badge = document.getElementById('cookie-badge');
+    const statusText = document.getElementById('cookie-status-text');
+    if (s.exists) {
+      badge.textContent = s.count + ' cookies';
+      statusText.textContent = 'updated ' + timeAgo(s.updatedAt);
+    } else {
+      badge.textContent = 'NONE';
+      statusText.textContent = '// no cookies on file';
+    }
+  }
+
+  async function saveCookies() {
+    const input = document.getElementById('cookie-input');
+    const msg = document.getElementById('cookie-msg');
+    const raw = input.value.trim();
+    if (!raw) { msg.textContent = '// paste your cookie JSON first'; msg.style.color = 'var(--red)'; return; }
+    let cookies;
+    try { cookies = JSON.parse(raw); } catch { msg.textContent = '// invalid JSON — check your paste'; msg.style.color = 'var(--red)'; return; }
+    if (!Array.isArray(cookies)) { msg.textContent = '// must be a JSON array'; msg.style.color = 'var(--red)'; return; }
+    msg.textContent = '// saving...'; msg.style.color = 'var(--muted)';
+    const r = await post('/api/cookies', { cookies });
+    if (r.success) {
+      msg.textContent = `// ${r.count} cookies saved — session refreshed`;
+      msg.style.color = 'var(--green)';
+      input.value = '';
+      loadCookieStatus();
+    } else {
+      msg.textContent = '// error: ' + (r.error || 'unknown');
+      msg.style.color = 'var(--red)';
+    }
+  }
+
+  // ── Tabs ──────────────────────────────────────────────
+  function switchTab(name, el) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('panel-' + name).classList.add('active');
+  }
+
+  // ── Utils ─────────────────────────────────────────────
+  function timeAgo(dateStr) {
+    const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+    if (diff < 60) return diff + 's ago';
+    if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+    if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+    return Math.floor(diff / 86400) + 'd ago';
+  }
+
+  function formatTime(dateStr) {
+    return new Date(dateStr).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+  }
+
+  function esc(s) {
+    return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  // ── Boot ──────────────────────────────────────────────
+  if (token) { showApp(); }
+</script>
+</body>
+</html>
