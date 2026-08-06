@@ -64,6 +64,9 @@ db.exec(`
   INSERT OR IGNORE INTO status (id) VALUES (1);
 `);
 
+// Migration: add priority column to existing databases
+try { db.exec('ALTER TABLE groups_list ADD COLUMN priority INTEGER DEFAULT 0'); } catch {}
+
 // ── Keywords ──────────────────────────────────────────
 function getKeywords() {
   return db.prepare('SELECT * FROM keywords WHERE active = 1 ORDER BY keyword ASC').all();
@@ -84,7 +87,7 @@ function removeKeyword(id) {
 
 // ── Groups ────────────────────────────────────────────
 function getGroups() {
-  return db.prepare('SELECT * FROM groups_list WHERE active = 1 ORDER BY created_at DESC').all();
+  return db.prepare('SELECT * FROM groups_list WHERE active = 1 ORDER BY priority DESC, created_at DESC').all();
 }
 
 function addGroup(url, name = '') {
@@ -98,6 +101,10 @@ function addGroup(url, name = '') {
 
 function removeGroup(id) {
   db.prepare('UPDATE groups_list SET active = 0 WHERE id = ?').run(id);
+}
+
+function setGroupPriority(id, priority) {
+  db.prepare('UPDATE groups_list SET priority = ? WHERE id = ?').run(priority ? 1 : 0, id);
 }
 
 function updateGroupChecked(id, name) {
@@ -157,7 +164,7 @@ function getLogs(limit = 100) {
 
 module.exports = {
   getKeywords, addKeyword, removeKeyword,
-  getGroups, addGroup, removeGroup, updateGroupChecked,
+  getGroups, addGroup, removeGroup, updateGroupChecked, setGroupPriority,
   isPostSeen, markPostSeen, pruneSeenPosts,
   addMatch, getRecentMatches,
   getStatus, updateStatus,

@@ -537,6 +537,40 @@
 
   .btn-remove:hover { border-color: var(--red); color: var(--red); }
 
+  .btn-star {
+    background: none;
+    border: none;
+    font-size: 15px;
+    line-height: 1;
+    cursor: pointer;
+    padding: 2px 4px;
+    opacity: 0.25;
+    transition: opacity 0.15s, transform 0.15s;
+    flex-shrink: 0;
+    color: var(--yellow);
+  }
+
+  .btn-star:hover { opacity: 0.8; transform: scale(1.2); }
+  .btn-star.starred { opacity: 1; }
+
+  .group-item.tier1 {
+    border-color: rgba(255, 184, 0, 0.28);
+    background: rgba(255, 184, 0, 0.04);
+  }
+
+  .tier1-badge {
+    font-family: var(--mono);
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.1em;
+    color: var(--yellow);
+    background: rgba(255,184,0,0.12);
+    border: 1px solid rgba(255,184,0,0.25);
+    padding: 1px 6px;
+    border-radius: 2px;
+    flex-shrink: 0;
+  }
+
   /* ── IMPORT STATUS ───────────────────────────────────── */
   #import-status {
     display: none;
@@ -873,6 +907,7 @@
           <div class="card-title">
             Monitored Groups
             <span class="badge" id="grp-count">0</span>
+            <span id="tier1-badge" style="display:none;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.1em;color:var(--yellow);background:rgba(255,184,0,0.12);border:1px solid rgba(255,184,0,0.25);padding:1px 6px;border-radius:2px;">★ <span id="tier1-count">0</span> TIER 1</span>
           </div>
           <button class="btn-import" id="btn-import" onclick="importGroups()">
             <span id="import-icon">⚡</span> IMPORT ALL
@@ -1069,12 +1104,18 @@
     document.getElementById('grp-count').textContent = groups.length;
     const list = document.getElementById('grp-list');
     if (!groups.length) { list.innerHTML = '<span class="empty">// no groups — use IMPORT ALL</span>'; return; }
+    const tier1Count = groups.filter(g => g.priority === 1).length;
+    document.getElementById('tier1-count').textContent = tier1Count;
+    document.getElementById('tier1-badge').style.display = tier1Count > 0 ? '' : 'none';
+
     list.innerHTML = groups.map(g => `
-      <div class="group-item">
+      <div class="group-item ${g.priority === 1 ? 'tier1' : ''}">
+        <button class="btn-star ${g.priority === 1 ? 'starred' : ''}" onclick="toggleStar(${g.id}, ${g.priority === 1 ? 0 : 1})" title="${g.priority === 1 ? 'Remove from Tier 1' : 'Star for Tier 1 — checked every sweep'}">★</button>
         <div class="group-info">
           <div class="group-name">${esc(g.name || 'Group ' + g.id)}</div>
           <div class="group-url">${esc(g.url)}</div>
         </div>
+        ${g.priority === 1 ? '<span class="tier1-badge">TIER 1</span>' : ''}
         <div class="group-checked">${g.last_checked ? timeAgo(g.last_checked) : 'pending'}</div>
         <button class="btn-remove" onclick="removeGroup(${g.id})">DEL</button>
       </div>
@@ -1094,6 +1135,15 @@
   async function removeGroup(id) {
     if (!confirm('Remove this group from monitoring?')) return;
     await del(`/api/groups/${id}`);
+    await loadGroups();
+  }
+
+  async function toggleStar(id, priority) {
+    await fetch(`/api/groups/${id}/priority`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({ priority })
+    });
     await loadGroups();
   }
 

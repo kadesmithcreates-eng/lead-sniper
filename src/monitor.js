@@ -4,7 +4,7 @@ const { initBrowser, closeBrowser, checkGroup, takeDebugScreenshot } = require('
 const { filterAndSummarize } = require('./gemini');
 const { sendDiscord, sendTelegram, sendAlert } = require('./notify');
 
-const BATCH_SIZE = 50;
+const NORMAL_BATCH_SIZE = 50;          // normal groups checked per sweep
 const MIN_DELAY_MS = 1 * 60 * 1000;   // 1 min minimum between sweeps
 const MAX_DELAY_MS = 3 * 60 * 1000;   // 3 min maximum
 const GROUP_DELAY_MS = [2000, 5000];   // pause between individual groups
@@ -66,10 +66,10 @@ async function processGroup(group, keywords, seedMode) {
 }
 
 async function runSweep(seedMode = false) {
-  const groups = db.getGroups();
+  const allGroups = db.getGroups();
   const keywords = db.getKeywords();
 
-  if (groups.length === 0) {
+  if (allGroups.length === 0) {
     db.addLog('warn', 'No groups configured — add groups in the dashboard');
     db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
     return;
@@ -81,13 +81,27 @@ async function runSweep(seedMode = false) {
     return;
   }
 
-  // Rotate batches so all groups get covered over multiple sweeps
-  const start = currentBatchIndex % groups.length;
-  const batch = groups.slice(start, Math.min(start + BATCH_SIZE, groups.length));
-  currentBatchIndex = (start + BATCH_SIZE) % groups.length;
+  // Split by tier: Tier 1 (starred) checked every sweep, Tier 2 rotates in batches
+  const tier1 = allGroups.filter(g => g.priority === 1);
+  const tier2 = allGroups.filter(g => g.priority !== 1);
+
+  let normalBatch = [];
+  if (tier2.length > 0) {
+    const start = currentBatchIndex % tier2.length;
+    normalBatch = tier2.slice(start, Math.min(start + NORMAL_BATCH_SIZE, tier2.length));
+    currentBatchIndex = (start + NORMAL_BATCH_SIZE) % tier2.length;
+  }
+
+  // Tier 1 always runs first every sweep
+  const batch = [...tier1, ...normalBatch];
 
   const label = seedMode ? 'SEED' : 'SWEEP';
-  db.addLog('info', `[${label}] Checking ${batch.length} groups (${start + 1}–${start + batch.length} of ${groups.length})`);
+  if (tier1.length > 0) {
+    db.addLog('info', `[${label}] ${tier1.length} tier-1 ★ + ${normalBatch.length} normal groups (${tier2.length} total normal)`);
+  } else {
+    const start = normalBatch.length > 0 ? (currentBatchIndex - normalBatch.length + tier2.length) % tier2.length : 0;
+    db.addLog('info', `[${label}] Checking ${batch.length} groups (${start + 1}–${start + normalBatch.length} of ${allGroups.length})`);
+  }
 
   let sweepMatches = 0;
   let sessionOk = true;
@@ -159,12 +173,24 @@ async function runSweep(seedMode = false) {
 async function seedRun() {
   db.addLog('info', '🌱 Seed mode: marking existing posts as seen (no notifications)...');
   const groups = db.getGroups();
-  let i = 0;
-  while (i < groups.length) {
-    currentBatchIndex = i;
-    await runSweep(true);
-    i += BATCH_SIZE;
+
+  for (let i = 0; i < groups.length; i += NORMAL_BATCH_SIZE) {
+    const batch = groups.slice(i, i + NORMAL_BATCH_SIZE);
+    db.addLog('info', `[SEED] ${i + 1}–${Math.min(i + NORMAL_BATCH_SIZE, groups.length)} of ${groups.length}`);
+    for (const group of batch) {
+      groupsCheckedSinceRestart++;
+      if (groupsCheckedSinceRestart >= BROWSER_RESTART_INTERVAL) {
+        await closeBrowser();
+        await initBrowser();
+        groupsCheckedSinceRestart = 0;
+      }
+      try { await processGroup(group, [], true); } catch (e) {
+        db.addLog('error', `Seed error: ${e.message}`);
+      }
+      await sleep(rand(...GROUP_DELAY_MS));
+    }
   }
+
   db.updateStatus({ seeded: 1 });
   db.addLog('info', '✅ Seed complete. Restart without --seed to begin monitoring.');
 }

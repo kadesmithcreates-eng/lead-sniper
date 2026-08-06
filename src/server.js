@@ -73,6 +73,12 @@ app.delete('/api/groups/:id', auth, (req, res) => {
   res.json({ success: true });
 });
 
+app.put('/api/groups/:id/priority', auth, (req, res) => {
+  const { priority } = req.body;
+  db.setGroupPriority(req.params.id, priority);
+  res.json({ success: true });
+});
+
 // ── Cookies ───────────────────────────────────────────
 app.post('/api/cookies', auth, (req, res) => {
   const { cookies } = req.body;
