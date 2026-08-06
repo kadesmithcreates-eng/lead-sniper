@@ -159,6 +159,7 @@ async function runSweep(seedMode = false) {
 
     await closeBrowser();
     await initBrowser();
+    groupsCheckedSinceRestart = 0;
     db.addLog('warn', `Dead man's switch triggered (${zeroCount} empty sweeps) — browser restarted`);
 
     // Reset counter so it doesn't fire every sweep after this

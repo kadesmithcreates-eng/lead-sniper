@@ -28,7 +28,10 @@ async function initBrowser() {
     headless: true,
     args: [
       ...(!isWindows ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : []),
-      '--disable-blink-features=AutomationControlled'
+      '--disable-gpu',
+      '--disable-blink-features=AutomationControlled',
+      '--no-first-run',
+      '--no-zygote',
     ],
     ...buildProxyConfig()
   });
