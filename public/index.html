@@ -909,9 +909,14 @@
             <span class="badge" id="grp-count">0</span>
             <span id="tier1-badge" style="display:none;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.1em;color:var(--yellow);background:rgba(255,184,0,0.12);border:1px solid rgba(255,184,0,0.25);padding:1px 6px;border-radius:2px;">★ <span id="tier1-count">0</span> TIER 1</span>
           </div>
-          <button class="btn-import" id="btn-import" onclick="importGroups()">
-            <span id="import-icon">⚡</span> IMPORT ALL
-          </button>
+          <div style="display:flex;gap:6px;">
+            <button class="btn-import" id="btn-fetch-names" onclick="fetchNames()">
+              <span id="fetch-names-icon">✦</span> FIX NAMES
+            </button>
+            <button class="btn-import" id="btn-import" onclick="importGroups()">
+              <span id="import-icon">⚡</span> IMPORT ALL
+            </button>
+          </div>
         </div>
         <div class="card-body">
           <div id="import-status"></div>
@@ -1145,6 +1150,37 @@
       body: JSON.stringify({ priority })
     });
     await loadGroups();
+  }
+
+  // ── Fix group names ───────────────────────────────────
+  let nameFetchPollInterval = null;
+
+  async function fetchNames() {
+    const btn = document.getElementById('btn-fetch-names');
+    const icon = document.getElementById('fetch-names-icon');
+    const statusEl = document.getElementById('import-status');
+
+    btn.disabled = true;
+    icon.textContent = '⏳';
+    statusEl.style.display = 'block';
+    statusEl.textContent = '// FETCHING GROUP NAMES — MONITOR PAUSED — TAKES 15-20 MIN. WATCH LOGS BELOW.';
+
+    try { await post('/api/groups/fetch-names', {}); } catch (e) {
+      statusEl.textContent = '// ERROR: ' + e.message;
+      btn.disabled = false; icon.textContent = '✦'; return;
+    }
+
+    nameFetchPollInterval = setInterval(async () => {
+      const s = await get('/api/groups/fetch-names/status');
+      if (!s) return;
+      if (!s.inProgress) {
+        clearInterval(nameFetchPollInterval);
+        await loadGroups();
+        statusEl.textContent = '// NAMES UPDATED — MONITOR RESTARTED';
+        btn.disabled = false; icon.textContent = '✦';
+        setTimeout(() => { statusEl.style.display = 'none'; }, 8000);
+      }
+    }, 5000);
   }
 
   // ── Import groups ─────────────────────────────────────

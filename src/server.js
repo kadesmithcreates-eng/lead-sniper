@@ -146,6 +146,42 @@ app.get('/api/groups/scrape/status', auth, (req, res) => {
   res.json({ inProgress: scrapeInProgress });
 });
 
+// ── Group name bulk-fetch ─────────────────────────────
+let nameFetchInProgress = false;
+
+app.post('/api/groups/fetch-names', auth, (req, res) => {
+  if (nameFetchInProgress) return res.status(409).json({ error: 'Already running — check logs for progress' });
+  nameFetchInProgress = true;
+  res.json({ started: true, message: 'Fetching group names — takes 15-20 min. Watch logs.' });
+
+  exec('pm2 stop fb-monitor', () => {
+    setTimeout(() => {
+      const child = spawn(process.execPath, [path.join(__dirname, 'fetch-names.js')], {
+        env: process.env,
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
+      });
+
+      child.stderr.on('data', d => console.error('[fetch-names]', d.toString()));
+
+      child.on('close', () => {
+        nameFetchInProgress = false;
+        exec('pm2 start fb-monitor');
+      });
+
+      child.on('error', e => {
+        nameFetchInProgress = false;
+        exec('pm2 start fb-monitor');
+        db.addLog('error', `Name fetch failed: ${e.message}`);
+      });
+    }, 1500);
+  });
+});
+
+app.get('/api/groups/fetch-names/status', auth, (req, res) => {
+  res.json({ inProgress: nameFetchInProgress });
+});
+
 // ── Matches ───────────────────────────────────────────
 app.get('/api/matches', auth, (req, res) => {
   res.json(db.getRecentMatches(50));
