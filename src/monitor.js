@@ -43,7 +43,7 @@ async function processGroup(group, keywords, seedMode) {
     db.markPostSeen(post.fingerprint);
 
     // AI filter
-    const { relevant, summary } = await filterAndSummarize(post.postText, post.matchedKeywords);
+    const { relevant, summary } = await filterAndSummarize(post.postText, post.matchedKeywords, post.postTs);
     if (!relevant) {
       db.addLog('info', `Gemini filtered: not relevant in ${groupName}`);
       continue;

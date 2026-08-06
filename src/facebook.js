@@ -134,9 +134,10 @@ async function checkGroup(group, keywords, seedMode = false) {
         const rawText = await article.innerText();
         if (!rawText || rawText.length < 15) continue;
 
-        // Skip posts older than 7 days
+        // Try to get post timestamp — used for age filtering and passed to AI
+        let postTs = null;
         try {
-          const postTs = await article.evaluate(el => {
+          postTs = await article.evaluate(el => {
             const abbr = el.querySelector('abbr[data-utime]');
             if (abbr) return parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
             const time = el.querySelector('time[datetime]');
@@ -179,6 +180,7 @@ async function checkGroup(group, keywords, seedMode = false) {
           postText: rawText.slice(0, 800),
           matchedKeywords: matched,
           groupName,
+          postTs,
           seed: false
         });
       } catch {}
