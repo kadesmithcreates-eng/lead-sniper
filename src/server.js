@@ -107,7 +107,8 @@ app.post('/api/groups/scrape', auth, (req, res) => {
     setTimeout(() => {
       const child = spawn(process.execPath, [path.join(__dirname, 'scrape-groups.js')], {
         env: process.env,
-        stdio: ['ignore', 'pipe', 'pipe']
+        stdio: ['ignore', 'pipe', 'pipe'],
+        windowsHide: true
       });
 
       let output = '';
