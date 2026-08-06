@@ -23,12 +23,11 @@ function buildProxyConfig() {
 async function initBrowser() {
   if (browser) await closeBrowser();
 
+  const isWindows = process.platform === 'win32';
   browser = await chromium.launch({
     headless: true,
     args: [
-      '--no-sandbox',
-      '--disable-setuid-sandbox',
-      '--disable-dev-shm-usage',
+      ...(!isWindows ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : []),
       '--disable-blink-features=AutomationControlled'
     ],
     ...buildProxyConfig()

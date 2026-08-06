@@ -22,9 +22,10 @@ const SKIP_SLUGS = new Set(['feed', 'discover', 'joins', 'search', 'creates', 'n
 const SKIP_DEEP  = new Set(['posts', 'members', 'media', 'files', 'events', 'about', 'permalink', 'photos']);
 
 async function scrapeGroups() {
+  const isWindows = process.platform === 'win32';
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    args: isWindows ? [] : ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
     ...buildProxy()
   });
 
