@@ -8,7 +8,7 @@ const NORMAL_BATCH_SIZE = 50;          // normal groups checked per sweep
 const MIN_DELAY_MS = 1 * 60 * 1000;   // 1 min minimum between sweeps
 const MAX_DELAY_MS = 3 * 60 * 1000;   // 3 min maximum
 const GROUP_DELAY_MS = [2000, 5000];   // pause between individual groups
-const ZERO_ALERT_THRESHOLD = 3;        // empty sweeps before alerting
+const ZERO_ALERT_THRESHOLD = 50;       // empty sweeps before alerting (~8+ hrs)
 const BROWSER_RESTART_INTERVAL = 75;  // restart browser every N groups
 
 const SEED_MODE = process.argv.includes('--seed');
@@ -149,7 +149,7 @@ async function runSweep(seedMode = false) {
     current_sweep_posts: sweepMatches
   });
 
-  // Dead man's switch — alert if nothing found for N consecutive sweeps
+  // Dead man's switch — alert once after N consecutive empty sweeps, then reset
   if (!seedMode && zeroCount >= ZERO_ALERT_THRESHOLD) {
     const msg = `⚠️ FB Monitor may be broken — 0 new matches in last ${zeroCount} sweeps.\n\nThis usually means:\n• Facebook changed their HTML (selectors broke)\n• Session cookies expired\n• IP blocked\n\nDashboard: ${process.env.DASHBOARD_URL || 'check your VPS'}`;
     await sendAlert(msg);
@@ -157,10 +157,12 @@ async function runSweep(seedMode = false) {
     const screenshot = await takeDebugScreenshot();
     if (screenshot) db.addLog('warn', `Debug screenshot saved: ${screenshot}`);
 
-    // Restart browser — might recover a broken session
     await closeBrowser();
     await initBrowser();
     db.addLog('warn', `Dead man's switch triggered (${zeroCount} empty sweeps) — browser restarted`);
+
+    // Reset counter so it doesn't fire every sweep after this
+    db.updateStatus({ consecutive_zero_sweeps: 0 });
   }
 
   if (!seedMode) {
