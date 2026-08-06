@@ -134,6 +134,18 @@ async function checkGroup(group, keywords, seedMode = false) {
         const rawText = await article.innerText();
         if (!rawText || rawText.length < 15) continue;
 
+        // Skip posts older than 7 days
+        try {
+          const postTs = await article.evaluate(el => {
+            const abbr = el.querySelector('abbr[data-utime]');
+            if (abbr) return parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
+            const time = el.querySelector('time[datetime]');
+            if (time) return new Date(time.getAttribute('datetime')).getTime();
+            return null;
+          });
+          if (postTs !== null && postTs < Date.now() - 7 * 24 * 60 * 60 * 1000) continue;
+        } catch {}
+
         // Find a post URL from any link inside the article
         let postUrl = group.url;
         try {
