@@ -1,14 +1,14 @@
 require('dotenv').config();
-const Database = require('better-sqlite3');
+const { DatabaseSync } = require('node:sqlite');
 const path = require('path');
 const fs = require('fs');
 
 const dataDir = path.join(__dirname, '../data');
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const db = new Database(path.join(dataDir, 'monitor.db'));
+const db = new DatabaseSync(path.join(dataDir, 'monitor.db'));
 
-db.pragma('journal_mode = WAL');
+db.exec('PRAGMA journal_mode = WAL');
 
 db.exec(`
   CREATE TABLE IF NOT EXISTS keywords (
@@ -117,7 +117,6 @@ function markPostSeen(fingerprint) {
   db.prepare('INSERT OR IGNORE INTO seen_posts (fingerprint) VALUES (?)').run(fingerprint);
 }
 
-// Prune seen posts older than 30 days to keep DB small
 function pruneSeenPosts() {
   db.prepare("DELETE FROM seen_posts WHERE seen_at < datetime('now', '-30 days')").run();
 }
