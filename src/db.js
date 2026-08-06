@@ -108,11 +108,17 @@ function setGroupPriority(id, priority) {
 }
 
 function updateGroupChecked(id, name) {
-  db.prepare(`
-    UPDATE groups_list
-    SET last_checked = datetime('now'), name = CASE WHEN ? != '' THEN ? ELSE name END
-    WHERE id = ?
-  `).run(name, name, id);
+  const bad = new Set(['notifications', 'notification', 'see all', 'groups', 'feed', 'home', 'facebook']);
+  const trimmed = (name || '').trim();
+  // Only overwrite if the new name looks like a real group name
+  const isGood = trimmed.length > 3
+    && !bad.has(trimmed.toLowerCase())
+    && !/^[\d,.\s]+$/.test(trimmed); // reject pure numbers/member counts
+  if (isGood) {
+    db.prepare(`UPDATE groups_list SET last_checked = datetime('now'), name = ? WHERE id = ?`).run(trimmed, id);
+  } else {
+    db.prepare(`UPDATE groups_list SET last_checked = datetime('now') WHERE id = ?`).run(id);
+  }
 }
 
 // ── Seen posts ────────────────────────────────────────

@@ -101,6 +101,12 @@ async function checkGroup(group, keywords, seedMode = false) {
       throw new Error('SESSION_EXPIRED');
     }
 
+    // Bail if redirected away from a group page (e.g. to Messenger, feed, profile)
+    if (!page.url().includes('/groups/')) {
+      await page.close();
+      return { results: [], groupName: group.name || group.url };
+    }
+
     // Human-like pause
     await page.waitForTimeout(2500 + Math.random() * 2500);
 
