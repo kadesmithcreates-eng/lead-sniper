@@ -50,7 +50,7 @@ Mark relevant=false if the post is:
 Be strict. When in doubt, mark false.
 
 Reply with valid JSON only, no markdown:
-{"relevant": true/false, "summary": "one sentence — what they need and where they are if mentioned"}`;
+{"relevant": true/false, "summary": "one sentence — what they need and where they are if mentioned${postTs ? '. Start the summary with the post age like: 4 days old —' : ''}"}`;
 
   try {
     const response = await ai.models.generateContent({
