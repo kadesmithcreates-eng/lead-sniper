@@ -130,10 +130,13 @@ function pruneSeenPosts() {
 
 // ── Matches ───────────────────────────────────────────
 function addMatch(groupId, groupName, postUrl, postText, matchedKeywords, summary) {
+  const kwStr = Array.isArray(matchedKeywords)
+    ? matchedKeywords.map(k => (typeof k === 'object' ? k.keyword : k)).join(', ')
+    : String(matchedKeywords);
   db.prepare(`
     INSERT INTO matches (group_id, group_name, post_url, post_text, matched_keywords, summary)
     VALUES (?, ?, ?, ?, ?, ?)
-  `).run(groupId, groupName, postUrl, postText.slice(0, 500), matchedKeywords.join(', '), summary);
+  `).run(groupId, groupName, postUrl, postText.slice(0, 500), kwStr, summary);
   db.prepare('UPDATE status SET total_matches = total_matches + 1 WHERE id = 1').run();
 }
 

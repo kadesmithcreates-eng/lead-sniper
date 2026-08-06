@@ -924,6 +924,7 @@
             <input type="text" id="grp-input" placeholder="https://facebook.com/groups/..." onkeydown="if(event.key==='Enter')addGroup()" />
             <button class="btn-add" onclick="addGroup()">ADD</button>
           </div>
+          <input type="text" id="grp-search" placeholder="search groups..." oninput="filterGroups()" style="width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius);padding:7px 12px;color:var(--text);font-family:var(--mono);font-size:11px;outline:none;margin-bottom:10px;letter-spacing:0.03em;transition:border-color 0.2s;" onfocus="this.style.borderColor='var(--accent)'" onblur="this.style.borderColor='var(--border)'" />
           <div class="group-list" id="grp-list">
             <span class="empty">// no groups added — use IMPORT ALL</span>
           </div>
@@ -1145,6 +1146,14 @@
     if (!confirm('Remove this group from monitoring?')) return;
     await del(`/api/groups/${id}`);
     await loadGroups();
+  }
+
+  function filterGroups() {
+    const q = document.getElementById('grp-search').value.toLowerCase();
+    document.querySelectorAll('#grp-list .group-item').forEach(el => {
+      const text = el.textContent.toLowerCase();
+      el.style.display = !q || text.includes(q) ? '' : 'none';
+    });
   }
 
   async function toggleStar(id, priority) {
