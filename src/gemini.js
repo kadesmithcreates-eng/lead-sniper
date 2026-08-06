@@ -16,20 +16,34 @@ async function filterAndSummarize(postText, matchedKeywords) {
 
   const keywordList = matchedKeywords.map(k => k.keyword).join(', ');
 
-  const prompt = `You are an assistant helping a diesel truck parts dealer monitor Facebook groups.
-They want notifications when someone is looking to buy, asking about, or actively discussing parts related to these keywords: ${keywordList}
+  const prompt = `You are filtering Facebook posts for a diesel truck tuning and delete kit business. They ONLY want leads — people who need to hire someone or buy something RIGHT NOW.
 
-Here is the Facebook post:
+Keywords that triggered this post: ${keywordList}
+
+Post:
 """
 ${postText.slice(0, 700)}
 """
 
-Decide:
-1. Is this post genuinely relevant? (Someone buying, selling, asking for help, or actively discussing these parts — not just a random mention)
-2. If yes, write ONE concise sentence explaining why it's relevant and what the person needs.
+Mark relevant=true ONLY if the post clearly shows someone who:
+- Is looking for a shop, tuner, or installer to do delete/tune work on their truck
+- Is asking for a price, quote, or recommendation for these services
+- Wants to BUY a tune, delete kit, or related part
+- Is asking "who does X" or "where can I get X done"
+
+Mark relevant=false if the post is:
+- Someone showing off or bragging about work already completed
+- General discussion, news, or information about these topics
+- A meme, video, or article share
+- Someone selling the same products (competitor post)
+- A casual mention of the keyword with no buying intent
+- Asking a technical question (not looking to hire anyone)
+- Anything where the person is NOT actively seeking to spend money
+
+Be strict. When in doubt, mark false. A false negative (missing a lead) is better than a false positive (spamming the client).
 
 Reply with valid JSON only, no markdown:
-{"relevant": true/false, "summary": "one sentence here"}`;
+{"relevant": true/false, "summary": "one sentence — what they need and where they are if mentioned"}`;
 
   try {
     const response = await ai.models.generateContent({
