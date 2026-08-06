@@ -76,4 +76,39 @@ async function sendAlert(message) {
   }
 }
 
-module.exports = { sendDiscord, sendTelegram, sendAlert };
+async function sendSessionExpiredAlert(dashUrl) {
+  if (process.env.DISCORD_WEBHOOK_URL) {
+    try {
+      await axios.post(process.env.DISCORD_WEBHOOK_URL, {
+        embeds: [{
+          title: '🍪 Facebook Session Expired',
+          description: `Cookies are no longer valid — Lead Sniper is paused.\n\nRefresh cookies in the dashboard: ${dashUrl}`,
+          color: 0xFF0000,
+          timestamp: new Date().toISOString(),
+          footer: { text: 'FB Group Monitor' }
+        }]
+      }, { timeout: 8000 });
+    } catch {}
+  }
+
+  if (process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_CHAT_ID) {
+    try {
+      await axios.post(
+        `https://api.telegram.org/bot${process.env.TELEGRAM_BOT_TOKEN}/sendMessage`,
+        {
+          chat_id: process.env.TELEGRAM_CHAT_ID,
+          text: `🍪 <b>Facebook session expired!</b>\n\nLead Sniper is paused — cookies need refreshing.\n\nTap the button below to auto-grab fresh cookies from Chrome on the mini PC, or paste them manually in the <a href="${dashUrl}">dashboard</a>.`,
+          parse_mode: 'HTML',
+          reply_markup: {
+            inline_keyboard: [[
+              { text: '🍪 Refresh Cookies Now', callback_data: 'refresh_cookies' }
+            ]]
+          }
+        },
+        { timeout: 8000 }
+      );
+    } catch {}
+  }
+}
+
+module.exports = { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert };

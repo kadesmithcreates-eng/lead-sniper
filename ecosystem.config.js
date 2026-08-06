@@ -13,6 +13,13 @@ module.exports = {
       restart_delay: 3000,
       max_restarts: 20,
       env: { NODE_ENV: 'production' }
+    },
+    {
+      name: 'cookie-bot',
+      script: 'src/cookie-bot.js',
+      restart_delay: 5000,
+      max_restarts: 20,
+      env: { NODE_ENV: 'production' }
     }
   ]
 };

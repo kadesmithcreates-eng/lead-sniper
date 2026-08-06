@@ -2,7 +2,7 @@ require('dotenv').config();
 const db = require('./db');
 const { initBrowser, closeBrowser, checkGroup, takeDebugScreenshot } = require('./facebook');
 const { filterAndSummarize } = require('./gemini');
-const { sendDiscord, sendTelegram, sendAlert } = require('./notify');
+const { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert } = require('./notify');
 
 const NORMAL_BATCH_SIZE = 50;          // normal groups checked per sweep
 const MIN_DELAY_MS = 1 * 60 * 1000;   // 1 min minimum between sweeps
@@ -121,10 +121,10 @@ async function runSweep(seedMode = false) {
       sweepMatches += count;
     } catch (e) {
       if (e.message === 'SESSION_EXPIRED') {
-        db.addLog('error', 'Facebook session expired — cookies need to be refreshed');
+        db.addLog('error', 'Facebook session expired — sending Telegram alert with refresh button');
         db.updateStatus({ session_alive: 0 });
         const dashUrl = process.env.DASHBOARD_URL || 'http://your-server:3000';
-        await sendAlert(`🍪 Facebook session expired!\n\nYour cookies are no longer valid. Jacob needs to:\n1. Open Chrome & log into Facebook\n2. Click Cookie-Editor extension → Export\n3. Go to dashboard → paste cookies → Save\n\nDashboard: ${dashUrl}`);
+        await sendSessionExpiredAlert(dashUrl);
         return;
       }
       db.addLog('error', `Group error: ${e.message}`);
