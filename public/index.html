@@ -907,7 +907,7 @@
           <div class="card-title">
             Monitored Groups
             <span class="badge" id="grp-count">0</span>
-            <span id="tier1-badge" style="display:none;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.1em;color:var(--yellow);background:rgba(255,184,0,0.12);border:1px solid rgba(255,184,0,0.25);padding:1px 6px;border-radius:2px;">★ <span id="tier1-count">0</span> TIER 1</span>
+            <span id="tier1-badge" style="display:none;font-family:var(--mono);font-size:9px;font-weight:700;letter-spacing:0.1em;color:var(--yellow);background:rgba(255,184,0,0.12);border:1px solid rgba(255,184,0,0.25);padding:1px 6px;border-radius:2px;">★ <span id="tier1-count">0</span> / 100 TIER 1</span>
           </div>
           <div style="display:flex;gap:6px;">
             <button class="btn-import" id="btn-fetch-names" onclick="fetchNames()">
@@ -1111,7 +1111,11 @@
     if (!groups.length) { list.innerHTML = '<span class="empty">// no groups — use IMPORT ALL</span>'; return; }
     const tier1Count = groups.filter(g => g.priority === 1).length;
     document.getElementById('tier1-count').textContent = tier1Count;
-    document.getElementById('tier1-badge').style.display = tier1Count > 0 ? '' : 'none';
+    const badge = document.getElementById('tier1-badge');
+    badge.style.display = tier1Count > 0 ? '' : 'none';
+    badge.style.color = tier1Count >= 100 ? 'var(--red)' : 'var(--yellow)';
+    badge.style.background = tier1Count >= 100 ? 'rgba(255,60,60,0.12)' : 'rgba(255,184,0,0.12)';
+    badge.style.borderColor = tier1Count >= 100 ? 'rgba(255,60,60,0.25)' : 'rgba(255,184,0,0.25)';
 
     list.innerHTML = groups.map(g => `
       <div class="group-item ${g.priority === 1 ? 'tier1' : ''}">
@@ -1144,6 +1148,13 @@
   }
 
   async function toggleStar(id, priority) {
+    if (priority === 1) {
+      const tier1Count = parseInt(document.getElementById('tier1-count').textContent) || 0;
+      if (tier1Count >= 100) {
+        alert('Tier 1 is full (100/100). Remove a starred group first to add another.');
+        return;
+      }
+    }
     await fetch(`/api/groups/${id}/priority`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
