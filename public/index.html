@@ -1112,7 +1112,7 @@
       <div class="group-item ${g.priority === 1 ? 'tier1' : ''}">
         <button class="btn-star ${g.priority === 1 ? 'starred' : ''}" onclick="toggleStar(${g.id}, ${g.priority === 1 ? 0 : 1})" title="${g.priority === 1 ? 'Remove from Tier 1' : 'Star for Tier 1 — checked every sweep'}">★</button>
         <div class="group-info">
-          <div class="group-name">${esc(g.name || 'Group ' + g.id)}</div>
+          <div class="group-name">${esc(groupDisplayName(g))}</div>
           <div class="group-url">${esc(g.url)}</div>
         </div>
         ${g.priority === 1 ? '<span class="tier1-badge">TIER 1</span>' : ''}
@@ -1260,6 +1260,25 @@
   }
 
   // ── Utils ─────────────────────────────────────────────
+  const BAD_NAMES = new Set(['notifications','notification','see all','groups','feed','discover','home','']);
+
+  function groupDisplayName(g) {
+    const raw = (g.name || '').trim().toLowerCase();
+    if (!raw || BAD_NAMES.has(raw) || raw === 'notifications' || raw.length < 3) {
+      // Fall back to URL slug — much more readable than "notifications"
+      try {
+        const parts = new URL(g.url).pathname.split('/').filter(Boolean);
+        const slug = parts[1] || '';
+        // Numeric ID: just show it as-is
+        if (/^\d+$/.test(slug)) return slug;
+        // Readable slug: replace dashes/underscores with spaces, title-case
+        return slug.replace(/[-_]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+      } catch {}
+      return g.url;
+    }
+    return g.name.trim();
+  }
+
   function timeAgo(dateStr) {
     const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
     if (diff < 60) return diff + 's ago';

@@ -97,6 +97,7 @@ async function scrapeGroups() {
       const visible = await page.$$eval('a[href*="/groups/"]', (anchors) => {
         const skipSlugs = new Set(['feed','discover','joins','search','creates','notifications','membership_questions','buy']);
         const skipDeep  = new Set(['posts','members','media','files','events','about','permalink','photos']);
+        const badNames  = new Set(['notifications','notification','see all','groups','feed','discover','home']);
         const results = [];
         for (const a of anchors) {
           try {
@@ -110,7 +111,21 @@ async function scrapeGroups() {
             if (skipSlugs.has(groupSlug)) continue;
             if (parts.length > 2 && skipDeep.has(parts[2])) continue;
             const groupUrl = `https://www.facebook.com/groups/${groupSlug}/`;
-            const name = (a.textContent || a.getAttribute('aria-label') || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+
+            // Find the most specific non-garbage text node inside the anchor
+            let name = '';
+            const walker = document.createTreeWalker(a, NodeFilter.SHOW_TEXT);
+            let node;
+            while ((node = walker.nextNode())) {
+              const t = node.nodeValue.trim();
+              if (t.length > 3 && !badNames.has(t.toLowerCase()) && !/^\d+$/.test(t)) {
+                name = t.slice(0, 120);
+                break;
+              }
+            }
+            // Fallback: aria-label or full textContent (cleaned)
+            if (!name) name = (a.getAttribute('aria-label') || a.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 120);
+
             results.push({ url: groupUrl, name });
           } catch {}
         }
