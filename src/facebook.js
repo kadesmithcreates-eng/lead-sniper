@@ -147,8 +147,8 @@ async function checkGroup(group, keywords, seedMode = false) {
           if (postTs !== null && postTs < Date.now() - 7 * 24 * 60 * 60 * 1000) continue;
         } catch {}
 
-        // Find a post URL from any link inside the article
-        let postUrl = group.url;
+        // Find a post URL — skip articles with no post permalink (filters messages/notifications)
+        let postUrl = null;
         try {
           const links = await article.$$('a[href]');
           for (const link of links) {
@@ -160,6 +160,7 @@ async function checkGroup(group, keywords, seedMode = false) {
             }
           }
         } catch {}
+        if (!postUrl) continue; // not a feed post (message, notification, sidebar card)
 
         const fingerprint = getPostFingerprint(postUrl, rawText);
 

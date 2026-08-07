@@ -4,10 +4,10 @@ const { initBrowser, closeBrowser, checkGroup, takeDebugScreenshot } = require('
 const { filterAndSummarize } = require('./gemini');
 const { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert } = require('./notify');
 
-const NORMAL_BATCH_SIZE = 50;          // normal groups checked per sweep
-const MIN_DELAY_MS = 1 * 60 * 1000;   // 1 min minimum between sweeps
-const MAX_DELAY_MS = 3 * 60 * 1000;   // 3 min maximum
-const GROUP_DELAY_MS = [2000, 5000];   // pause between individual groups
+const NORMAL_BATCH_SIZE = 25;          // normal groups checked per sweep
+const MIN_DELAY_MS = 3 * 60 * 1000;   // 3 min minimum between sweeps
+const MAX_DELAY_MS = 6 * 60 * 1000;   // 6 min maximum
+const GROUP_DELAY_MS = [6000, 14000];  // pause between individual groups
 const ZERO_ALERT_THRESHOLD = 50;       // empty sweeps before alerting (~8+ hrs)
 const BROWSER_RESTART_INTERVAL = 75;  // restart browser every N groups
 
