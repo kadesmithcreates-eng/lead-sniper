@@ -4,10 +4,11 @@ const { initBrowser, closeBrowser, checkGroup, takeDebugScreenshot } = require('
 const { filterAndSummarize } = require('./gemini');
 const { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert } = require('./notify');
 
-const NORMAL_BATCH_SIZE = 25;          // normal groups checked per sweep
-const MIN_DELAY_MS = 3 * 60 * 1000;   // 3 min minimum between sweeps
-const MAX_DELAY_MS = 6 * 60 * 1000;   // 6 min maximum
-const GROUP_DELAY_MS = [6000, 14000];  // pause between individual groups
+const TIER2_BATCH_SIZE = 15;           // tier 2 groups per sweep
+const TIER2_EVERY_N = 3;              // include tier 2 every N loops (tier 1 runs every loop)
+const TIER1_DELAY_MS = [3000, 6000];  // fast — starred groups
+const TIER2_DELAY_MS = [8000, 16000]; // slow — normal groups (ban protection)
+const LOOP_DELAY_MS = [75000, 105000]; // 75–105s between loops
 const ZERO_ALERT_THRESHOLD = 50;       // empty sweeps before alerting (~8+ hrs)
 const BROWSER_RESTART_INTERVAL = 75;  // restart browser every N groups
 
@@ -15,6 +16,7 @@ const SEED_MODE = process.argv.includes('--seed');
 
 let currentBatchIndex = 0;
 let groupsCheckedSinceRestart = 0;
+let loopCounter = 0;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function rand(min, max) { return min + Math.random() * (max - min); }
@@ -81,32 +83,26 @@ async function runSweep(seedMode = false) {
     return;
   }
 
-  // Split by tier: Tier 1 (starred) checked every sweep, Tier 2 rotates in batches
+  // Tier 1 (starred) runs every loop — Tier 2 only runs every TIER2_EVERY_N loops
   const tier1 = allGroups.filter(g => g.priority === 1);
   const tier2 = allGroups.filter(g => g.priority !== 1);
+  const includeTier2 = seedMode || (loopCounter % TIER2_EVERY_N === 0);
 
-  let normalBatch = [];
-  if (tier2.length > 0) {
+  let tier2Batch = [];
+  if (includeTier2 && tier2.length > 0) {
     const start = currentBatchIndex % tier2.length;
-    normalBatch = tier2.slice(start, Math.min(start + NORMAL_BATCH_SIZE, tier2.length));
-    currentBatchIndex = (start + NORMAL_BATCH_SIZE) % tier2.length;
+    tier2Batch = tier2.slice(start, Math.min(start + TIER2_BATCH_SIZE, tier2.length));
+    currentBatchIndex = (start + TIER2_BATCH_SIZE) % tier2.length;
   }
 
-  // Tier 1 always runs first every sweep
-  const batch = [...tier1, ...normalBatch];
-
-  const label = seedMode ? 'SEED' : 'SWEEP';
-  if (tier1.length > 0) {
-    db.addLog('info', `[${label}] ${tier1.length} tier-1 ★ + ${normalBatch.length} normal groups (${tier2.length} total normal)`);
-  } else {
-    const start = normalBatch.length > 0 ? (currentBatchIndex - normalBatch.length + tier2.length) % tier2.length : 0;
-    db.addLog('info', `[${label}] Checking ${batch.length} groups (${start + 1}–${start + normalBatch.length} of ${allGroups.length})`);
-  }
+  const label = seedMode ? 'SEED' : 'LOOP';
+  db.addLog('info', `[${label} #${loopCounter}] ★ ${tier1.length} tier-1${includeTier2 ? ` + ${tier2Batch.length} normal (${tier2.length} total)` : ' only'}`);
 
   let sweepMatches = 0;
   let sessionOk = true;
 
-  for (const group of batch) {
+  // Process tier 1 fast, tier 2 slow
+  for (const [group, isTier1] of [...tier1.map(g => [g, true]), ...tier2Batch.map(g => [g, false])]) {
     // Periodically restart the browser to prevent memory/session drift
     groupsCheckedSinceRestart++;
     if (groupsCheckedSinceRestart >= BROWSER_RESTART_INTERVAL) {
@@ -131,8 +127,7 @@ async function runSweep(seedMode = false) {
       if (e.message.includes('net::ERR') || e.message.includes('timeout')) sessionOk = false;
     }
 
-    // Random human-like delay between groups
-    await sleep(rand(...GROUP_DELAY_MS));
+    await sleep(rand(...(isTier1 ? TIER1_DELAY_MS : TIER2_DELAY_MS)));
   }
 
   // Update status
@@ -226,15 +221,15 @@ async function main() {
       db.addLog('error', `Sweep error: ${e.message}`);
       await sendAlert(`❌ Monitor sweep error: ${e.message}`);
 
-      // Try to recover
       try {
         await closeBrowser();
         await initBrowser();
       } catch {}
     }
 
-    const delay = rand(MIN_DELAY_MS, MAX_DELAY_MS);
-    db.addLog('info', `Next sweep in ${Math.round(delay / 1000)}s`);
+    loopCounter++;
+    const delay = rand(...LOOP_DELAY_MS);
+    db.addLog('info', `Next loop in ${Math.round(delay / 1000)}s`);
     await sleep(delay);
   }
 }
