@@ -83,26 +83,21 @@ async function runSweep(seedMode = false) {
     return;
   }
 
-  // Tier 1 (starred) runs every loop — Tier 2 only runs every TIER2_EVERY_N loops
+  // Only check starred (tier 1) groups — tier 2 is disabled
   const tier1 = allGroups.filter(g => g.priority === 1);
-  const tier2 = allGroups.filter(g => g.priority !== 1);
-  const includeTier2 = seedMode || (loopCounter % TIER2_EVERY_N === 0);
-
-  let tier2Batch = [];
-  if (includeTier2 && tier2.length > 0) {
-    const start = currentBatchIndex % tier2.length;
-    tier2Batch = tier2.slice(start, Math.min(start + TIER2_BATCH_SIZE, tier2.length));
-    currentBatchIndex = (start + TIER2_BATCH_SIZE) % tier2.length;
-  }
 
   const label = seedMode ? 'SEED' : 'LOOP';
-  db.addLog('info', `[${label} #${loopCounter}] ★ ${tier1.length} tier-1${includeTier2 ? ` + ${tier2Batch.length} normal (${tier2.length} total)` : ' only'}`);
+  if (tier1.length === 0) {
+    db.addLog('warn', 'No starred groups — star your best groups in the dashboard');
+    db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
+    return;
+  }
+  db.addLog('info', `[${label} #${loopCounter}] Checking ${tier1.length} starred ★ groups`);
 
   let sweepMatches = 0;
   let sessionOk = true;
 
-  // Process tier 1 fast, tier 2 slow
-  for (const [group, isTier1] of [...tier1.map(g => [g, true]), ...tier2Batch.map(g => [g, false])]) {
+  for (const [group, isTier1] of tier1.map(g => [g, true])) {
     // Periodically restart the browser to prevent memory/session drift
     groupsCheckedSinceRestart++;
     if (groupsCheckedSinceRestart >= BROWSER_RESTART_INTERVAL) {

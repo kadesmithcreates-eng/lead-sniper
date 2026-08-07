@@ -107,14 +107,22 @@ async function checkGroup(group, keywords, seedMode = false) {
       return { results: [], groupName: group.name || group.url };
     }
 
-    // Human-like pause
-    await page.waitForTimeout(2500 + Math.random() * 2500);
+    // Human-like pause after page load
+    await page.waitForTimeout(2000 + Math.random() * 3000);
 
-    // Scroll to trigger post loading
-    await page.evaluate(() => window.scrollBy(0, 700));
-    await page.waitForTimeout(1500 + Math.random() * 1000);
-    await page.evaluate(() => window.scrollBy(0, 500));
-    await page.waitForTimeout(1000);
+    // Human-like scroll pattern — scroll down in chunks with pauses, occasionally back up
+    const scrollSteps = 2 + Math.floor(Math.random() * 3);
+    for (let i = 0; i < scrollSteps; i++) {
+      const scrollAmount = 400 + Math.floor(Math.random() * 500);
+      await page.evaluate(amt => window.scrollBy(0, amt), scrollAmount);
+      await page.waitForTimeout(800 + Math.random() * 1200);
+      // Occasionally scroll back up slightly like a human re-reading
+      if (Math.random() < 0.3) {
+        await page.evaluate(() => window.scrollBy(0, -(80 + Math.random() * 120)));
+        await page.waitForTimeout(400 + Math.random() * 600);
+      }
+    }
+    await page.waitForTimeout(500 + Math.random() * 1000);
 
     // Try to grab group name
     let groupName = group.name || group.url;
