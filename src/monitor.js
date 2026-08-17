@@ -4,7 +4,7 @@ const { initBrowser, closeBrowser, checkFeed, takeDebugScreenshot } = require('.
 const { filterAndSummarize } = require('./gemini');
 const { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert } = require('./notify');
 
-const FEED_INTERVAL_MS = [180000, 300000]; // 3–5 min between checks
+const FEED_INTERVAL_MS = [20000, 45000]; // 20-45 sec between sweeps (sweep itself takes ~3 min)
 const ZERO_ALERT_THRESHOLD = 30;           // ~2.5 hrs of empty sweeps before alerting
 const BROWSER_RESTART_EVERY = 20;         // restart browser every N sweeps (memory hygiene)
 

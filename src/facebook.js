@@ -235,11 +235,18 @@ async function checkFeed(keywords, seedMode = false) {
 
     if (page.url().includes('/login')) throw new Error('SESSION_EXPIRED');
 
-    // Human-like scroll — 6 passes ~= 3000-5000px, enough to load 10-15 feed posts
-    await page.waitForTimeout(2000 + Math.random() * 1500);
-    for (let i = 0; i < 6; i++) {
-      await page.evaluate(() => window.scrollBy(0, 500 + Math.random() * 400));
-      await page.waitForTimeout(700 + Math.random() * 600);
+    // Browse the feed like a real human — scroll slowly for 2.5-3.5 minutes
+    // so Facebook loads many pages of posts before we scan
+    await page.waitForTimeout(1500 + Math.random() * 1000);
+    const scrollDuration = 150000 + Math.random() * 60000; // 2.5–3.5 min
+    const scrollStart = Date.now();
+    while (Date.now() - scrollStart < scrollDuration) {
+      await page.evaluate(() => window.scrollBy(0, 150 + Math.random() * 250));
+      // 25% chance of a longer "reading" pause, rest are quick scrolls
+      const pause = Math.random() < 0.25
+        ? 3000 + Math.random() * 5000
+        : 600 + Math.random() * 1000;
+      await page.waitForTimeout(pause);
     }
 
     // Run entirely in-browser so .href gives fully resolved absolute URLs
