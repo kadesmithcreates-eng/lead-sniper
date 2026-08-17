@@ -248,6 +248,12 @@ async function checkFeed(keywords, seedMode = false) {
     const url = page.url();
     if (url.includes('/login') || url.includes('login.php')) throw new Error('SESSION_EXPIRED');
 
+    // Save HTML snapshot for debugging — check data/page-debug.html to see what loaded
+    try {
+      const html = await page.content();
+      fs.writeFileSync(path.join(__dirname, '../data/page-debug.html'), html);
+    } catch {}
+
     // Give the server-rendered page a moment then click "More" once if present
     await page.waitForTimeout(1500 + Math.random() * 1000);
     try {
