@@ -235,11 +235,11 @@ async function checkFeed(keywords, seedMode = false) {
 
     if (page.url().includes('/login')) throw new Error('SESSION_EXPIRED');
 
-    // Human-like pause then light scroll — keep it lean to avoid crashing
+    // Human-like scroll — 6 passes ~= 3000-5000px, enough to load 10-15 feed posts
     await page.waitForTimeout(2000 + Math.random() * 1500);
-    for (let i = 0; i < 2; i++) {
-      await page.evaluate(() => window.scrollBy(0, 400 + Math.random() * 300));
-      await page.waitForTimeout(800 + Math.random() * 700);
+    for (let i = 0; i < 6; i++) {
+      await page.evaluate(() => window.scrollBy(0, 500 + Math.random() * 400));
+      await page.waitForTimeout(700 + Math.random() * 600);
     }
 
     // Run entirely in-browser so .href gives fully resolved absolute URLs
