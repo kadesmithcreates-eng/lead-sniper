@@ -1,236 +1,151 @@
 require('dotenv').config();
 const db = require('./db');
-const { initBrowser, closeBrowser, checkGroup, takeDebugScreenshot } = require('./facebook');
+const { initBrowser, closeBrowser, checkFeed, takeDebugScreenshot } = require('./facebook');
 const { filterAndSummarize } = require('./gemini');
 const { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert } = require('./notify');
 
-const TIER2_BATCH_SIZE = 15;           // tier 2 groups per sweep
-const TIER2_EVERY_N = 3;              // include tier 2 every N loops (tier 1 runs every loop)
-const TIER1_DELAY_MS = [3000, 6000];  // fast — starred groups
-const TIER2_DELAY_MS = [8000, 16000]; // slow — normal groups (ban protection)
-const LOOP_DELAY_MS = [75000, 105000]; // 75–105s between loops
-const ZERO_ALERT_THRESHOLD = 50;       // empty sweeps before alerting (~8+ hrs)
-const BROWSER_RESTART_INTERVAL = 75;  // restart browser every N groups
+const FEED_INTERVAL_MS = [180000, 300000]; // 3–5 min between checks
+const ZERO_ALERT_THRESHOLD = 30;           // ~2.5 hrs of empty sweeps before alerting
+const BROWSER_RESTART_EVERY = 20;         // restart browser every N sweeps (memory hygiene)
 
 const SEED_MODE = process.argv.includes('--seed');
 
-let currentBatchIndex = 0;
-let groupsCheckedSinceRestart = 0;
-let loopCounter = 0;
+let sweepCount = 0;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function rand(min, max) { return min + Math.random() * (max - min); }
 
-async function processGroup(group, keywords, seedMode) {
-  let checkResult;
-  try {
-    checkResult = await checkGroup(group, keywords, seedMode);
-  } catch (e) {
-    db.addLog('error', `Failed to check group "${group.name || group.url}": ${e.message}`);
+async function runSweep(seedMode = false) {
+  const keywords = db.getKeywords();
+
+  if (!seedMode && keywords.length === 0) {
+    db.addLog('warn', 'No keywords set — add keywords in the dashboard');
+    db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
     return 0;
   }
 
-  const { results, groupName } = checkResult;
-  db.updateGroupChecked(group.id, groupName);
+  sweepCount++;
+
+  // Periodic browser restart to prevent memory/session drift
+  if (sweepCount % BROWSER_RESTART_EVERY === 0) {
+    db.addLog('info', 'Scheduled browser restart');
+    await closeBrowser();
+    await initBrowser();
+  }
+
+  let posts;
+  try {
+    posts = await checkFeed(keywords, seedMode);
+  } catch (e) {
+    if (e.message === 'SESSION_EXPIRED') {
+      db.addLog('error', 'Facebook session expired — need new cookies');
+      db.updateStatus({ session_alive: 0 });
+      const dashUrl = process.env.DASHBOARD_URL || 'http://your-server:3000';
+      await sendSessionExpiredAlert(dashUrl);
+      return 0;
+    }
+    throw e;
+  }
+
+  db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
 
   if (seedMode) {
-    for (const r of results) db.markPostSeen(r.fingerprint);
+    for (const p of posts) db.markPostSeen(p.fingerprint);
+    db.addLog('info', `Seed: marked ${posts.length} feed posts as seen`);
     return 0;
   }
 
   let matchCount = 0;
 
-  for (const post of results) {
+  for (const post of posts) {
     if (db.isPostSeen(post.fingerprint)) continue;
     db.markPostSeen(post.fingerprint);
 
-    // AI filter
     const { relevant, summary } = await filterAndSummarize(post.postText, post.matchedKeywords, post.postTs);
     if (!relevant) {
-      db.addLog('info', `Gemini filtered: not relevant in ${groupName}`);
+      db.addLog('info', `AI filtered out a post — not relevant`);
       continue;
     }
 
-    // Save to DB
-    db.addMatch(group.id, groupName, post.postUrl, post.postText, post.matchedKeywords, summary);
+    db.addMatch(null, 'Facebook Feed', post.postUrl, post.postText, post.matchedKeywords, summary);
     matchCount++;
 
-    // Notify on both channels simultaneously
     await Promise.allSettled([
-      sendDiscord(groupName, post.postUrl, summary, post.matchedKeywords),
-      sendTelegram(groupName, post.postUrl, summary, post.matchedKeywords)
+      sendDiscord('Facebook Feed', post.postUrl, summary, post.matchedKeywords),
+      sendTelegram('Facebook Feed', post.postUrl, summary, post.matchedKeywords)
     ]);
 
-    db.addLog('info', `✅ Match in "${groupName}" — ${post.matchedKeywords.map(k => k.keyword).join(', ')}`);
+    db.addLog('info', `✅ Match in feed — ${post.matchedKeywords.map(k => k.keyword).join(', ')}`);
   }
 
   return matchCount;
 }
 
-async function runSweep(seedMode = false) {
-  const allGroups = db.getGroups();
-  const keywords = db.getKeywords();
-
-  if (allGroups.length === 0) {
-    db.addLog('warn', 'No groups configured — add groups in the dashboard');
-    db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
-    return;
-  }
-
-  if (!seedMode && keywords.length === 0) {
-    db.addLog('warn', 'No keywords configured — add keywords in the dashboard');
-    db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
-    return;
-  }
-
-  // Only check starred (tier 1) groups — tier 2 is disabled
-  const tier1 = allGroups.filter(g => g.priority === 1);
-
-  const label = seedMode ? 'SEED' : 'LOOP';
-  if (tier1.length === 0) {
-    db.addLog('warn', 'No starred groups — star your best groups in the dashboard');
-    db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
-    return;
-  }
-  db.addLog('info', `[${label} #${loopCounter}] Checking ${tier1.length} starred ★ groups`);
-
-  let sweepMatches = 0;
-  let sessionOk = true;
-
-  for (const [group, isTier1] of tier1.map(g => [g, true])) {
-    // Periodically restart the browser to prevent memory/session drift
-    groupsCheckedSinceRestart++;
-    if (groupsCheckedSinceRestart >= BROWSER_RESTART_INTERVAL) {
-      db.addLog('info', 'Scheduled browser restart for memory hygiene');
-      await closeBrowser();
-      await initBrowser();
-      groupsCheckedSinceRestart = 0;
-    }
-
-    try {
-      const count = await processGroup(group, keywords, seedMode);
-      sweepMatches += count;
-    } catch (e) {
-      if (e.message === 'SESSION_EXPIRED') {
-        db.addLog('error', 'Facebook session expired — sending Telegram alert with refresh button');
-        db.updateStatus({ session_alive: 0 });
-        const dashUrl = process.env.DASHBOARD_URL || 'http://your-server:3000';
-        await sendSessionExpiredAlert(dashUrl);
-        return;
-      }
-      db.addLog('error', `Group error: ${e.message}`);
-      if (e.message.includes('net::ERR') || e.message.includes('timeout')) sessionOk = false;
-    }
-
-    await sleep(rand(...(isTier1 ? TIER1_DELAY_MS : TIER2_DELAY_MS)));
-  }
-
-  // Update status
-  const prevStatus = db.getStatus();
-  const zeroCount = sweepMatches === 0
-    ? (prevStatus.consecutive_zero_sweeps || 0) + 1
-    : 0;
-
-  db.updateStatus({
-    session_alive: sessionOk ? 1 : 0,
-    last_heartbeat: new Date().toISOString(),
-    ...(sweepMatches > 0 ? { last_post_found: new Date().toISOString() } : {}),
-    consecutive_zero_sweeps: zeroCount,
-    current_sweep_posts: sweepMatches
-  });
-
-  // Dead man's switch — alert once after N consecutive empty sweeps, then reset
-  if (!seedMode && zeroCount >= ZERO_ALERT_THRESHOLD) {
-    const msg = `⚠️ FB Monitor may be broken — 0 new matches in last ${zeroCount} sweeps.\n\nThis usually means:\n• Facebook changed their HTML (selectors broke)\n• Session cookies expired\n• IP blocked\n\nDashboard: ${process.env.DASHBOARD_URL || 'check your VPS'}`;
-    await sendAlert(msg);
-
-    const screenshot = await takeDebugScreenshot();
-    if (screenshot) db.addLog('warn', `Debug screenshot saved: ${screenshot}`);
-
-    await closeBrowser();
-    await initBrowser();
-    groupsCheckedSinceRestart = 0;
-    db.addLog('warn', `Dead man's switch triggered (${zeroCount} empty sweeps) — browser restarted`);
-
-    // Reset counter so it doesn't fire every sweep after this
-    db.updateStatus({ consecutive_zero_sweeps: 0 });
-  }
-
-  if (!seedMode) {
-    db.addLog('info', `Sweep done. ${sweepMatches} new match${sweepMatches !== 1 ? 'es' : ''} found.`);
-  }
-
-  db.pruneSeenPosts();
-}
-
-async function seedRun() {
-  db.addLog('info', '🌱 Seed mode: marking existing posts as seen (no notifications)...');
-  const groups = db.getGroups();
-
-  for (let i = 0; i < groups.length; i += NORMAL_BATCH_SIZE) {
-    const batch = groups.slice(i, i + NORMAL_BATCH_SIZE);
-    db.addLog('info', `[SEED] ${i + 1}–${Math.min(i + NORMAL_BATCH_SIZE, groups.length)} of ${groups.length}`);
-    for (const group of batch) {
-      groupsCheckedSinceRestart++;
-      if (groupsCheckedSinceRestart >= BROWSER_RESTART_INTERVAL) {
-        await closeBrowser();
-        await initBrowser();
-        groupsCheckedSinceRestart = 0;
-      }
-      try { await processGroup(group, [], true); } catch (e) {
-        db.addLog('error', `Seed error: ${e.message}`);
-      }
-      await sleep(rand(...GROUP_DELAY_MS));
-    }
-  }
-
-  db.updateStatus({ seeded: 1 });
-  db.addLog('info', '✅ Seed complete. Restart without --seed to begin monitoring.');
-}
-
 async function main() {
-  db.addLog('info', '🚀 Facebook Monitor starting...');
+  db.addLog('info', '🚀 Feed monitor starting...');
 
   try {
     await initBrowser();
     db.addLog('info', 'Browser initialized');
   } catch (e) {
     db.addLog('error', `Browser init failed: ${e.message}`);
-    await sendAlert(`❌ Monitor failed to start — browser error: ${e.message}`);
+    await sendAlert(`❌ Monitor failed to start: ${e.message}`);
     process.exit(1);
   }
 
   if (SEED_MODE) {
-    await seedRun();
+    db.addLog('info', '🌱 Seed mode: marking current feed posts as seen...');
+    await runSweep(true);
+    db.updateStatus({ seeded: 1 });
+    db.addLog('info', '✅ Seed done. Restart without --seed to begin monitoring.');
     await closeBrowser();
     process.exit(0);
   }
 
   db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
 
-  // Main loop
+  let consecutiveZero = 0;
+  let loopCounter = 0;
+
   while (true) {
+    loopCounter++;
     try {
-      await runSweep(false);
+      const matches = await runSweep(false);
+      if (matches > 0) {
+        consecutiveZero = 0;
+        db.updateStatus({ last_post_found: new Date().toISOString(), consecutive_zero_sweeps: 0, current_sweep_posts: matches });
+      } else {
+        consecutiveZero++;
+        db.updateStatus({ consecutive_zero_sweeps: consecutiveZero, current_sweep_posts: 0 });
+      }
+
+      db.addLog('info', `[Loop #${loopCounter}] ${matches} match${matches !== 1 ? 'es' : ''} found`);
+
+      // Dead man's switch
+      if (consecutiveZero >= ZERO_ALERT_THRESHOLD) {
+        const msg = `⚠️ Feed monitor may be broken — 0 matches in last ${consecutiveZero} sweeps (~${Math.round(consecutiveZero * 4)} min).\nPossible causes: session expired, IP blocked, Facebook layout change.\nDashboard: ${process.env.DASHBOARD_URL || 'check your VPS'}`;
+        await sendAlert(msg);
+        const screenshot = await takeDebugScreenshot();
+        if (screenshot) db.addLog('warn', `Debug screenshot: ${screenshot}`);
+        await closeBrowser();
+        await initBrowser();
+        consecutiveZero = 0;
+      }
     } catch (e) {
       db.addLog('error', `Sweep error: ${e.message}`);
       await sendAlert(`❌ Monitor sweep error: ${e.message}`);
-
-      try {
-        await closeBrowser();
-        await initBrowser();
-      } catch {}
+      try { await closeBrowser(); await initBrowser(); } catch {}
     }
 
-    loopCounter++;
-    const delay = rand(...LOOP_DELAY_MS);
-    db.addLog('info', `Next loop in ${Math.round(delay / 1000)}s`);
+    db.pruneSeenPosts();
+    const delay = rand(...FEED_INTERVAL_MS);
+    db.addLog('info', `Next check in ${Math.round(delay / 1000)}s`);
     await sleep(delay);
   }
 }
 
 main().catch(async (e) => {
   console.error('Fatal:', e);
-  await sendAlert(`❌ Fatal monitor crash: ${e.message}`);
+  await sendAlert(`❌ Fatal crash: ${e.message}`);
   process.exit(1);
 });

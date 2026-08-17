@@ -214,4 +214,91 @@ async function takeDebugScreenshot() {
   }
 }
 
-module.exports = { initBrowser, closeBrowser, checkGroup, takeDebugScreenshot };
+async function checkFeed(keywords, seedMode = false) {
+  if (!context) throw new Error('Browser not initialized');
+
+  const page = await context.newPage();
+  const results = [];
+
+  try {
+    await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 45000 });
+
+    if (page.url().includes('/login')) throw new Error('SESSION_EXPIRED');
+
+    // Human-like pause then scroll to load more posts
+    await page.waitForTimeout(2500 + Math.random() * 2000);
+    for (let i = 0; i < 4; i++) {
+      await page.evaluate(() => window.scrollBy(0, 500 + Math.random() * 400));
+      await page.waitForTimeout(900 + Math.random() * 800);
+      if (Math.random() < 0.25) {
+        await page.evaluate(() => window.scrollBy(0, -(80 + Math.random() * 100)));
+        await page.waitForTimeout(400 + Math.random() * 400);
+      }
+    }
+
+    const articles = await page.$$('div[role="article"]');
+
+    // Only look at posts from the last 8 hours — avoids reading old stuff on every refresh
+    const cutoff = Date.now() - 8 * 60 * 60 * 1000;
+
+    for (const article of articles) {
+      try {
+        const rawText = await article.innerText();
+        if (!rawText || rawText.length < 15) continue;
+
+        // Timestamp filter — skip old posts
+        let postTs = null;
+        try {
+          postTs = await article.evaluate(el => {
+            const abbr = el.querySelector('abbr[data-utime]');
+            if (abbr) return parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
+            const time = el.querySelector('time[datetime]');
+            if (time) return new Date(time.getAttribute('datetime')).getTime();
+            return null;
+          });
+          if (postTs !== null && postTs < cutoff) continue;
+        } catch {}
+
+        // Must have a post permalink — filters out ads, stories, notifications, messages
+        let postUrl = null;
+        try {
+          const links = await article.$$('a[href]');
+          for (const link of links) {
+            const href = await link.getAttribute('href');
+            if (!href) continue;
+            if (href.includes('/posts/') || href.includes('story_fbid') || href.includes('/permalink/')) {
+              postUrl = href.startsWith('http') ? href : `https://www.facebook.com${href}`;
+              break;
+            }
+          }
+        } catch {}
+        if (!postUrl) continue;
+
+        const fingerprint = getPostFingerprint(postUrl, rawText);
+
+        if (seedMode) {
+          results.push({ fingerprint, seed: true });
+          continue;
+        }
+
+        const lower = rawText.toLowerCase();
+        const matched = keywords.filter(k => lower.includes(k.keyword.toLowerCase()));
+        if (matched.length === 0) continue;
+
+        results.push({
+          fingerprint,
+          postUrl,
+          postText: rawText.slice(0, 800),
+          matchedKeywords: matched,
+          postTs,
+        });
+      } catch {}
+    }
+
+    return results;
+  } finally {
+    await page.close();
+  }
+}
+
+module.exports = { initBrowser, closeBrowser, checkGroup, checkFeed, takeDebugScreenshot };
