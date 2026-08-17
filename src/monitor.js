@@ -4,7 +4,7 @@ const { initBrowser, closeBrowser, checkFeed, takeDebugScreenshot } = require('.
 const { filterAndSummarize } = require('./gemini');
 const { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert } = require('./notify');
 
-const FEED_INTERVAL_MS = [20000, 45000]; // 20-45 sec between sweeps (sweep itself takes ~3 min)
+const FEED_INTERVAL_MS = [120000, 180000]; // 2–3 min between sweeps (sweep itself takes ~1 min)
 const ZERO_ALERT_THRESHOLD = 30;           // ~2.5 hrs of empty sweeps before alerting
 const BROWSER_RESTART_EVERY = 20;         // restart browser every N sweeps (memory hygiene)
 
@@ -134,7 +134,14 @@ async function main() {
     } catch (e) {
       db.addLog('error', `Sweep error: ${e.message}`);
       await sendAlert(`❌ Monitor sweep error: ${e.message}`);
-      try { await closeBrowser(); await initBrowser(); } catch {}
+      try {
+        await closeBrowser();
+        await new Promise(r => setTimeout(r, 5000)); // let OS reclaim memory before restarting
+        await initBrowser();
+        db.addLog('info', 'Browser restarted after crash');
+      } catch (restartErr) {
+        db.addLog('error', `Browser restart failed: ${restartErr.message}`);
+      }
     }
 
     db.pruneSeenPosts();

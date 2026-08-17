@@ -227,7 +227,15 @@ async function takeDebugScreenshot() {
 async function checkFeed(keywords, seedMode = false) {
   if (!context) throw new Error('Browser not initialized');
 
-  const page = await context.newPage();
+  let page;
+  try {
+    page = await context.newPage();
+  } catch {
+    // Browser process died without proper cleanup — reset so caller can restart
+    browser = null;
+    context = null;
+    throw new Error('Browser not initialized');
+  }
   const results = [];
 
   try {
@@ -235,17 +243,16 @@ async function checkFeed(keywords, seedMode = false) {
 
     if (page.url().includes('/login')) throw new Error('SESSION_EXPIRED');
 
-    // Browse the feed like a real human — scroll slowly for 2.5-3.5 minutes
-    // so Facebook loads many pages of posts before we scan
+    // Scroll like a human reading their feed for 45-75 seconds.
+    // Longer than that crashes the browser on low-RAM machines (FB DOM grows unbounded).
     await page.waitForTimeout(1500 + Math.random() * 1000);
-    const scrollDuration = 150000 + Math.random() * 60000; // 2.5–3.5 min
+    const scrollDuration = 45000 + Math.random() * 30000; // 45–75 sec
     const scrollStart = Date.now();
     while (Date.now() - scrollStart < scrollDuration) {
-      await page.evaluate(() => window.scrollBy(0, 150 + Math.random() * 250));
-      // 25% chance of a longer "reading" pause, rest are quick scrolls
-      const pause = Math.random() < 0.25
-        ? 3000 + Math.random() * 5000
-        : 600 + Math.random() * 1000;
+      await page.evaluate(() => window.scrollBy(0, 200 + Math.random() * 300));
+      const pause = Math.random() < 0.2
+        ? 2500 + Math.random() * 3000  // occasional reading pause
+        : 500 + Math.random() * 800;   // normal scroll speed
       await page.waitForTimeout(pause);
     }
 
