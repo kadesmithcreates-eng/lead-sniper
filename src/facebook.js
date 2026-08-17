@@ -54,6 +54,16 @@ async function initBrowser() {
     permissions: [],
   });
 
+  // Block images, video, and fonts — we only need text, saves ~70% of FB page memory
+  await context.route('**', (route) => {
+    const type = route.request().resourceType();
+    if (['image', 'media', 'font', 'stylesheet'].includes(type)) {
+      route.abort();
+    } else {
+      route.continue();
+    }
+  });
+
   // Load Facebook session cookies
   const cookiesPath = path.join(__dirname, '../data/cookies.json');
   if (fs.existsSync(cookiesPath)) {
@@ -243,17 +253,12 @@ async function checkFeed(keywords, seedMode = false) {
 
     if (page.url().includes('/login')) throw new Error('SESSION_EXPIRED');
 
-    // Scroll like a human reading their feed for 45-75 seconds.
-    // Longer than that crashes the browser on low-RAM machines (FB DOM grows unbounded).
-    await page.waitForTimeout(1500 + Math.random() * 1000);
-    const scrollDuration = 45000 + Math.random() * 30000; // 45–75 sec
-    const scrollStart = Date.now();
-    while (Date.now() - scrollStart < scrollDuration) {
-      await page.evaluate(() => window.scrollBy(0, 200 + Math.random() * 300));
-      const pause = Math.random() < 0.2
-        ? 2500 + Math.random() * 3000  // occasional reading pause
-        : 500 + Math.random() * 800;   // normal scroll speed
-      await page.waitForTimeout(pause);
+    // 15 scroll steps with 2-4s pauses = ~45s total, loads 20-30 posts.
+    // Fixed loop (not while) lets Chrome GC between steps — prevents OOM crash.
+    await page.waitForTimeout(2000 + Math.random() * 1000);
+    for (let i = 0; i < 15; i++) {
+      await page.evaluate(() => window.scrollBy(0, 400 + Math.random() * 400));
+      await page.waitForTimeout(2000 + Math.random() * 2000);
     }
 
     // Run entirely in-browser so .href gives fully resolved absolute URLs
