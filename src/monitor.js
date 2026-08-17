@@ -33,9 +33,9 @@ async function runSweep(seedMode = false) {
     await initBrowser();
   }
 
-  let posts;
+  let feedResult;
   try {
-    posts = await checkFeed(keywords, seedMode);
+    feedResult = await checkFeed(keywords, seedMode);
   } catch (e) {
     if (e.message === 'SESSION_EXPIRED') {
       db.addLog('error', 'Facebook session expired — need new cookies');
@@ -47,7 +47,9 @@ async function runSweep(seedMode = false) {
     throw e;
   }
 
+  const { posts, stats } = feedResult;
   db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
+  db.addLog('info', `Scan: ${stats.articles} articles, ${stats.withUrl} with URL, ${stats.keywordHits} keyword hits`);
 
   if (seedMode) {
     for (const p of posts) db.markPostSeen(p.fingerprint);
@@ -58,7 +60,10 @@ async function runSweep(seedMode = false) {
   let matchCount = 0;
 
   for (const post of posts) {
-    if (db.isPostSeen(post.fingerprint)) continue;
+    if (db.isPostSeen(post.fingerprint)) {
+      db.addLog('info', `Skipped already-seen post: ${(post.postUrl || '').slice(0, 60)}`);
+      continue;
+    }
     db.markPostSeen(post.fingerprint);
 
     const { relevant, summary } = await filterAndSummarize(post.postText, post.matchedKeywords, post.postTs);

@@ -321,7 +321,7 @@ async function checkFeed(keywords, seedMode = false) {
     }, cutoff);
 
     const withUrl = rawPosts.filter(p => p.postUrl).length;
-    console.log(`[checkFeed] ${rawPosts.length} articles found, ${withUrl} with URL`);
+    let keywordHits = 0;
 
     for (const post of rawPosts) {
       const fingerprint = getPostFingerprint(post.postUrl, post.text);
@@ -335,6 +335,7 @@ async function checkFeed(keywords, seedMode = false) {
       const matched = keywords.filter(k => lower.includes(k.keyword.toLowerCase()));
       if (matched.length === 0) continue;
 
+      keywordHits++;
       results.push({
         fingerprint,
         postUrl: post.postUrl || 'https://www.facebook.com/',
@@ -344,7 +345,7 @@ async function checkFeed(keywords, seedMode = false) {
       });
     }
 
-    return results;
+    return { posts: results, stats: { articles: rawPosts.length, withUrl, keywordHits } };
   } finally {
     await page.close();
   }
