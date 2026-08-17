@@ -23,22 +23,32 @@ function buildProxyConfig() {
 async function initBrowser() {
   if (browser) await closeBrowser();
 
-  const isWindows = process.platform === 'win32';
   browser = await chromium.launch({
     headless: true,
     args: [
-      ...(!isWindows ? ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'] : []),
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
       '--disable-gpu',
       '--disable-blink-features=AutomationControlled',
       '--no-first-run',
-      '--no-zygote',
+      '--disable-extensions',
+      '--disable-background-networking',
+      '--disable-sync',
+      '--disable-translate',
+      '--hide-scrollbars',
+      '--metrics-recording-only',
+      '--mute-audio',
+      '--no-default-browser-check',
+      '--safebrowsing-disable-auto-update',
+      '--js-flags=--max-old-space-size=512',
     ],
     ...buildProxyConfig()
   });
 
   context = await browser.newContext({
     userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
-    viewport: { width: 1366, height: 768 },
+    viewport: { width: 1280, height: 720 },
     locale: 'en-US',
     timezoneId: 'America/New_York',
     permissions: [],
@@ -225,15 +235,11 @@ async function checkFeed(keywords, seedMode = false) {
 
     if (page.url().includes('/login')) throw new Error('SESSION_EXPIRED');
 
-    // Human-like pause then scroll to load more posts
-    await page.waitForTimeout(2500 + Math.random() * 2000);
-    for (let i = 0; i < 4; i++) {
-      await page.evaluate(() => window.scrollBy(0, 500 + Math.random() * 400));
-      await page.waitForTimeout(900 + Math.random() * 800);
-      if (Math.random() < 0.25) {
-        await page.evaluate(() => window.scrollBy(0, -(80 + Math.random() * 100)));
-        await page.waitForTimeout(400 + Math.random() * 400);
-      }
+    // Human-like pause then light scroll — keep it lean to avoid crashing
+    await page.waitForTimeout(2000 + Math.random() * 1500);
+    for (let i = 0; i < 2; i++) {
+      await page.evaluate(() => window.scrollBy(0, 400 + Math.random() * 300));
+      await page.waitForTimeout(800 + Math.random() * 700);
     }
 
     const articles = await page.$$('div[role="article"]');
