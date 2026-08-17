@@ -242,63 +242,92 @@ async function checkFeed(keywords, seedMode = false) {
       await page.waitForTimeout(800 + Math.random() * 700);
     }
 
-    const articles = await page.$$('div[role="article"]');
-
-    // Only look at posts from the last 8 hours — avoids reading old stuff on every refresh
+    // Run entirely in-browser so .href gives fully resolved absolute URLs
+    // (getAttribute('href') returns React-mangled relative paths that never match)
     const cutoff = Date.now() - 8 * 60 * 60 * 1000;
 
-    for (const article of articles) {
-      try {
-        const rawText = await article.innerText();
-        if (!rawText || rawText.length < 15) continue;
+    const rawPosts = await page.evaluate((cutoffMs) => {
+      const SKIP = ['/messages/', '/marketplace/', '/login', '/events/', '/watch/'];
+      const articles = document.querySelectorAll('div[role="article"]');
+      const posts = [];
 
-        // Timestamp filter — skip old posts
+      for (const article of articles) {
+        const text = article.innerText;
+        if (!text || text.length < 15) continue;
+
+        // Timestamp filter
         let postTs = null;
-        try {
-          postTs = await article.evaluate(el => {
-            const abbr = el.querySelector('abbr[data-utime]');
-            if (abbr) return parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
-            const time = el.querySelector('time[datetime]');
-            if (time) return new Date(time.getAttribute('datetime')).getTime();
-            return null;
-          });
-          if (postTs !== null && postTs < cutoff) continue;
-        } catch {}
+        const abbr = article.querySelector('abbr[data-utime]');
+        if (abbr) postTs = parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
+        if (!postTs) {
+          const timeEl = article.querySelector('time[datetime]');
+          if (timeEl) postTs = new Date(timeEl.getAttribute('datetime')).getTime();
+        }
+        if (postTs !== null && postTs < cutoffMs) continue;
 
-        // Must have a post permalink — filters out ads, stories, notifications, messages
+        // URL detection using .href (resolved absolute URL)
         let postUrl = null;
-        try {
-          const links = await article.$$('a[href]');
-          for (const link of links) {
-            const href = await link.getAttribute('href');
-            if (!href) continue;
-            if (href.includes('/posts/') || href.includes('story_fbid') || href.includes('/permalink/')) {
-              postUrl = href.startsWith('http') ? href : `https://www.facebook.com${href}`;
-              break;
-            }
+        const allLinks = article.querySelectorAll('a');
+
+        // Pass 1: strong post URL signals
+        for (const a of allLinks) {
+          const href = a.href;
+          if (!href || !href.startsWith('https://www.facebook.com')) continue;
+          if (SKIP.some(s => href.includes(s))) continue;
+          if (href.includes('/posts/') || href.includes('story_fbid') ||
+              href.includes('/permalink/') || href.includes('fbid=') ||
+              href.includes('/pfbid')) {
+            postUrl = href;
+            break;
           }
-        } catch {}
-        if (!postUrl) continue;
-
-        const fingerprint = getPostFingerprint(postUrl, rawText);
-
-        if (seedMode) {
-          results.push({ fingerprint, seed: true });
-          continue;
         }
 
-        const lower = rawText.toLowerCase();
-        const matched = keywords.filter(k => lower.includes(k.keyword.toLowerCase()));
-        if (matched.length === 0) continue;
+        // Pass 2: any facebook.com path that's not homepage/profile root
+        if (!postUrl) {
+          for (const a of allLinks) {
+            const href = a.href;
+            if (!href || !href.startsWith('https://www.facebook.com')) continue;
+            if (SKIP.some(s => href.includes(s))) continue;
+            if (href === 'https://www.facebook.com/' || href === 'https://www.facebook.com') continue;
+            try {
+              const u = new URL(href);
+              // Must have a meaningful path (not just /) and contain digits (post IDs do)
+              if (u.pathname.length > 2 && /\d{8,}/.test(u.pathname + u.search)) {
+                postUrl = href;
+                break;
+              }
+            } catch {}
+          }
+        }
 
-        results.push({
-          fingerprint,
-          postUrl,
-          postText: rawText.slice(0, 800),
-          matchedKeywords: matched,
-          postTs,
-        });
-      } catch {}
+        posts.push({ text: text.slice(0, 800), postUrl, postTs });
+      }
+
+      return posts;
+    }, cutoff);
+
+    const withUrl = rawPosts.filter(p => p.postUrl).length;
+    console.log(`[checkFeed] ${rawPosts.length} articles found, ${withUrl} with URL`);
+
+    for (const post of rawPosts) {
+      const fingerprint = getPostFingerprint(post.postUrl, post.text);
+
+      if (seedMode) {
+        results.push({ fingerprint, seed: true });
+        continue;
+      }
+
+      const lower = post.text.toLowerCase();
+      const matched = keywords.filter(k => lower.includes(k.keyword.toLowerCase()));
+      if (matched.length === 0) continue;
+
+      results.push({
+        fingerprint,
+        postUrl: post.postUrl || 'https://www.facebook.com/',
+        postText: post.text,
+        matchedKeywords: matched,
+        postTs: post.postTs,
+      });
     }
 
     return results;
