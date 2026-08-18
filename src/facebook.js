@@ -281,70 +281,71 @@ async function checkFeed(keywords, seedMode = false) {
     }));
     console.log('[checkFeed] diag:', JSON.stringify(diag));
 
-    // Scroll to trigger lazy-loading of more posts
+    const cutoff = Date.now() - 8 * 60 * 60 * 1000;
+
+    // Set up a MutationObserver BEFORE scrolling so we capture posts as they
+    // enter the DOM during scroll — Facebook's virtual list removes them again
+    // immediately, so querying after scroll always sees almost nothing.
+    await page.evaluate((cutoffMs) => {
+      window.__capturedPosts = [];
+      window.__seenTexts = new Set();
+
+      function captureVisible() {
+        document.querySelectorAll('div[role="article"]').forEach(el => {
+          const text = (el.innerText || '').trim();
+          if (text.length < 40) return;
+          const key = text.slice(0, 100);
+          if (window.__seenTexts.has(key)) return;
+          window.__seenTexts.add(key);
+
+          // Find post URL
+          let postUrl = null;
+          for (const a of el.querySelectorAll('a[href]')) {
+            const h = a.href || '';
+            if (!h || h === '#' || h.startsWith('javascript')) continue;
+            if (h.includes('/posts/') || h.includes('story_fbid') ||
+                h.includes('/permalink/') || h.includes('story.php') ||
+                h.includes('/photo/') || h.includes('/video/') ||
+                h.includes('/reel/') || h.includes('/watch/')) {
+              postUrl = h;
+              break;
+            }
+          }
+
+          // Timestamp
+          let postTs = null;
+          const t = el.querySelector('time[datetime]');
+          if (t) postTs = new Date(t.getAttribute('datetime')).getTime();
+          if (postTs !== null && postTs < cutoffMs) return;
+
+          window.__capturedPosts.push({ text: text.slice(0, 800), postUrl, postTs });
+        });
+      }
+
+      // Capture whatever is in the DOM right now
+      captureVisible();
+
+      // Watch for new articles entering the DOM as we scroll
+      window.__postObserver = new MutationObserver(captureVisible);
+      window.__postObserver.observe(document.body, { childList: true, subtree: true });
+    }, cutoff);
+
+    // Scroll through the feed — observer captures posts as they appear
     await humanInteract(page);
+    await page.waitForTimeout(2000 + Math.random() * 1500);
 
-    // Wait for scroll-triggered posts to render before scraping
-    await page.waitForTimeout(3000 + Math.random() * 2000);
-
-    // Save snapshot + screenshot for debugging
+    // Save screenshot for debugging
     try {
-      const html = await page.content();
-      fs.writeFileSync(path.join(__dirname, '../data/page-debug.html'), html);
       await page.screenshot({ path: path.join(__dirname, '../data/page-debug.png'), fullPage: false });
     } catch {}
 
-    const cutoff = Date.now() - 8 * 60 * 60 * 1000;
+    // Stop observer and collect all captured posts
+    const rawPosts = await page.evaluate(() => {
+      if (window.__postObserver) window.__postObserver.disconnect();
+      return window.__capturedPosts || [];
+    });
 
-    // www.facebook.com uses div[role="article"] for every feed post — same selector as groups
-    const articles = await page.$$('div[role="article"]');
-
-    const rawPosts = [];
-    const seenUrls = new Set();
-
-    console.log(`[checkFeed] found ${articles.length} article elements after scroll`);
-
-    for (const article of articles) {
-      try {
-        const rawText = (await article.innerText()).trim();
-        if (!rawText || rawText.length < 30) continue;
-
-        // Find a permalink for this post — try all common Facebook URL patterns
-        let postUrl = null;
-        const links = await article.$$('a[href]');
-        for (const link of links) {
-          const href = await link.getAttribute('href');
-          if (!href || href === '#' || href.startsWith('javascript')) continue;
-          if (href.includes('/posts/') || href.includes('story_fbid') ||
-              href.includes('/permalink/') || href.includes('story.php') ||
-              href.includes('/photo/') || href.includes('/video/') ||
-              href.includes('/reel/') || href.includes('/watch/')) {
-            postUrl = href.startsWith('http') ? href : `https://www.facebook.com${href}`;
-            break;
-          }
-        }
-
-        // Fall back to text-based fingerprint if no URL found — still process the article
-        const baseUrl = postUrl ? postUrl.split('?')[0] : 'txt:' + rawText.slice(0, 80);
-        if (seenUrls.has(baseUrl)) continue;
-        seenUrls.add(baseUrl);
-
-        // Timestamp
-        let postTs = null;
-        try {
-          postTs = await article.evaluate(el => {
-            const time = el.querySelector('time[datetime]');
-            if (time) return new Date(time.getAttribute('datetime')).getTime();
-            const abbr = el.querySelector('abbr[data-utime]');
-            if (abbr) return parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
-            return null;
-          });
-          if (postTs !== null && postTs < cutoff) continue;
-        } catch {}
-
-        rawPosts.push({ text: rawText.slice(0, 800), postUrl, postTs });
-      } catch {}
-    }
+    console.log(`[checkFeed] captured ${rawPosts.length} posts via observer`);
 
     const withUrl = rawPosts.length;
     let keywordHits = 0;
