@@ -257,20 +257,24 @@ async function checkFeed(keywords, seedMode = false) {
 
   try {
     // Use www.facebook.com — mbasic gets redirected to the full site for real Chromium browsers.
-    await page.goto('https://www.facebook.com/', { waitUntil: 'load', timeout: 45000 });
+    await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 45000 });
 
-    const url = page.url();
-    if (url.includes('/login') || url.includes('login.php')) throw new Error('SESSION_EXPIRED');
+    const landedUrl = page.url();
+    console.log('[checkFeed] landed on:', landedUrl);
+    if (landedUrl.includes('/login') || landedUrl.includes('login.php')) throw new Error('SESSION_EXPIRED');
 
     // Let React fully boot and render the initial feed
-    await page.waitForTimeout(4000 + Math.random() * 2000);
+    await page.waitForTimeout(6000 + Math.random() * 3000);
 
-    // Wait for at least one article to appear
-    try {
-      await page.waitForSelector('div[role="article"]', { timeout: 15000 });
-    } catch {
-      // No articles visible yet — checkpoint or very slow load, continue anyway
-    }
+    // Diagnostic: log how many of each selector exist so we know what state the page is in
+    const diag = await page.evaluate(() => ({
+      articles:  document.querySelectorAll('div[role="article"]').length,
+      feed:      document.querySelectorAll('[role="feed"]').length,
+      anyArt:    document.querySelectorAll('article').length,
+      pagelets:  document.querySelectorAll('[data-pagelet]').length,
+      bodyLen:   (document.body?.innerText || '').length,
+    }));
+    console.log('[checkFeed] diag:', JSON.stringify(diag));
 
     // Scroll to trigger lazy-loading of more posts
     await humanInteract(page);
