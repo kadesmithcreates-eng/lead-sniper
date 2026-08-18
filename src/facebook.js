@@ -287,10 +287,11 @@ async function checkFeed(keywords, seedMode = false) {
     // Wait for scroll-triggered posts to render before scraping
     await page.waitForTimeout(3000 + Math.random() * 2000);
 
-    // Save snapshot for debugging
+    // Save snapshot + screenshot for debugging
     try {
       const html = await page.content();
       fs.writeFileSync(path.join(__dirname, '../data/page-debug.html'), html);
+      await page.screenshot({ path: path.join(__dirname, '../data/page-debug.png'), fullPage: false });
     } catch {}
 
     const cutoff = Date.now() - 8 * 60 * 60 * 1000;
