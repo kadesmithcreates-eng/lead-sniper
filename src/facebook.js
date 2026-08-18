@@ -263,15 +263,20 @@ async function checkFeed(keywords, seedMode = false) {
     console.log('[checkFeed] landed on:', landedUrl);
     if (landedUrl.includes('/login') || landedUrl.includes('login.php')) throw new Error('SESSION_EXPIRED');
 
-    // Let React fully boot and render the initial feed
-    await page.waitForTimeout(6000 + Math.random() * 3000);
+    // Poll until React has rendered real feed content (body > 5000 chars or 3+ articles)
+    // Timeout of 40s — slow PCs may need extra time
+    try {
+      await page.waitForFunction(
+        () => document.body.innerText.length > 5000 || document.querySelectorAll('div[role="article"]').length > 2,
+        { timeout: 40000, polling: 1000 }
+      );
+    } catch {
+      console.log('[checkFeed] waitForFunction timed out — scraping whatever is loaded');
+    }
 
     // Diagnostic: log how many of each selector exist so we know what state the page is in
     const diag = await page.evaluate(() => ({
       articles:  document.querySelectorAll('div[role="article"]').length,
-      feed:      document.querySelectorAll('[role="feed"]').length,
-      anyArt:    document.querySelectorAll('article').length,
-      pagelets:  document.querySelectorAll('[data-pagelet]').length,
       bodyLen:   (document.body?.innerText || '').length,
     }));
     console.log('[checkFeed] diag:', JSON.stringify(diag));
