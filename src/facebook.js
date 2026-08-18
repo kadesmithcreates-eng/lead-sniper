@@ -33,15 +33,15 @@ function buildProxyConfig() {
 async function initBrowser() {
   if (context) await closeBrowser();
 
+  // Check BEFORE launch — launchPersistentContext creates the profile dir itself,
+  // so checking after launch always sees the file and skips cookie import.
+  const isFirstRun = !fs.existsSync(path.join(USER_DATA_DIR, 'Default', 'Preferences'));
+
   // Slightly randomize viewport each session — no two sessions look identical
   const width  = 375 + Math.floor(Math.random() * 40);
   const height = 812 + Math.floor(Math.random() * 80);
   const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 
-  // launchPersistentContext saves the full browser profile to disk:
-  // cookies, localStorage, cache, history — so every session looks like
-  // a returning user, not a fresh browser install.
-  // headless: false removes 40+ detectable headless signals.
   context = await chromium.launchPersistentContext(USER_DATA_DIR, {
     headless: false,
     args: [
@@ -64,10 +64,7 @@ async function initBrowser() {
     ...buildProxyConfig(),
   });
 
-  // Only inject cookies.json on the very first run (no saved profile yet).
-  // After first run the profile handles its own session persistence.
-  const profileExists = fs.existsSync(path.join(USER_DATA_DIR, 'Default', 'Preferences'));
-  if (!profileExists) {
+  if (isFirstRun) {
     const cookiesPath = path.join(__dirname, '../data/cookies.json');
     if (fs.existsSync(cookiesPath)) {
       try {
