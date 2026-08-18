@@ -232,7 +232,6 @@ async function checkFeed(keywords, seedMode = false) {
   try {
     page = await context.newPage();
   } catch {
-    // Browser process died without proper cleanup — reset so caller can restart
     browser = null;
     context = null;
     throw new Error('Browser not initialized');
@@ -240,25 +239,22 @@ async function checkFeed(keywords, seedMode = false) {
   const results = [];
 
   try {
-    // mbasic = pure server-rendered HTML, no JavaScript framework.
-    // Loads in ~1s and uses <50MB RAM vs 500MB+ for desktop FB.
-    // Same cookies work — they're scoped to .facebook.com
     await page.goto('https://mbasic.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
 
     const url = page.url();
     if (url.includes('/login') || url.includes('login.php')) throw new Error('SESSION_EXPIRED');
 
-    // Save HTML snapshot for debugging — check data/page-debug.html to see what loaded
+    // Save snapshot every time for debugging
     try {
       const html = await page.content();
       fs.writeFileSync(path.join(__dirname, '../data/page-debug.html'), html);
     } catch {}
 
-    // Give the server-rendered page a moment then click "More" once if present
     await page.waitForTimeout(1500 + Math.random() * 1000);
+
+    // Click "More" to load extra posts if available
     try {
-      // mbasic paginates via a "More" link at the bottom
-      const moreLink = await page.$('a[href*="timelineSectionLoadingID"], a[href*="more_stories"], a[href*="LastCursor"]');
+      const moreLink = await page.$('a[href*="timelineSectionLoadingID"], a[href*="more_stories"], a[href*="LastCursor"], a[href*="cursor"]');
       if (moreLink) {
         await moreLink.click();
         await page.waitForTimeout(2000 + Math.random() * 1000);
@@ -268,56 +264,67 @@ async function checkFeed(keywords, seedMode = false) {
     const cutoff = Date.now() - 8 * 60 * 60 * 1000;
 
     const rawPosts = await page.evaluate((cutoffMs) => {
-      const SKIP = ['/login', '/messages/', '/marketplace/', '/events/', 'javascript:'];
+      const SKIP = ['/login', '/messages/', '/marketplace/', '/events/', 'javascript:', '/notifications/', 'l.facebook.com'];
       const seen = new Set();
       const posts = [];
 
-      // mbasic wraps each story in a div with data-ft containing publish_time
-      const storyDivs = document.querySelectorAll('div[data-ft]');
+      // mbasic story links — Like/Comment buttons all link to story.php
+      // Also catch /permalink/ (group posts) and /posts/ (profile posts)
+      function isStoryHref(h) {
+        if (!h || SKIP.some(s => h.includes(s))) return false;
+        return h.includes('story.php') || h.includes('story_fbid') ||
+               h.includes('/permalink/') || h.includes('/posts/');
+      }
 
-      for (const div of storyDivs) {
-        const text = div.innerText;
-        if (!text || text.length < 15) continue;
+      // Walk UP from a link to find a natural story container.
+      // mbasic wraps each story in a <div> that contains author + text + timestamp + actions.
+      // We climb until we find a div whose text is between 40 and 3000 chars.
+      function getStoryContainer(el) {
+        let node = el;
+        let best = el.parentElement;
+        for (let i = 0; i < 10; i++) {
+          if (!node.parentElement || node.parentElement === document.body) break;
+          node = node.parentElement;
+          const len = (node.innerText || '').trim().length;
+          if (len >= 40 && len <= 3000) best = node;
+          if (len > 3000) break; // gone too far up — stop
+        }
+        return best;
+      }
 
-        // Timestamp from data-ft JSON
+      // Collect all story-linked <a> tags
+      const links = Array.from(document.querySelectorAll('a[href]'))
+        .filter(a => isStoryHref(a.href));
+
+      for (const link of links) {
+        const href = link.href;
+        const baseUrl = href.split('&')[0]; // strip extra params for dedup
+        if (seen.has(baseUrl)) continue;
+        seen.add(baseUrl);
+
+        const container = getStoryContainer(link);
+        const text = (container?.innerText || '').trim();
+        if (text.length < 25) continue;
+
+        // Timestamp: mbasic uses <abbr data-utime="..."> inside the story
         let postTs = null;
         try {
-          const ft = JSON.parse(div.getAttribute('data-ft') || '{}');
-          if (ft.publish_time) postTs = ft.publish_time * 1000;
+          const abbr = container?.querySelector('abbr[data-utime]');
+          if (abbr) postTs = parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
         } catch {}
         if (postTs !== null && postTs < cutoffMs) continue;
 
-        // Find the permalink — mbasic uses story.php?story_fbid=... or /posts/
-        let postUrl = null;
-        for (const a of div.querySelectorAll('a')) {
-          const href = a.href;
-          if (!href) continue;
-          if (SKIP.some(s => href.includes(s))) continue;
-          if (href.includes('story.php') || href.includes('story_fbid') ||
-              href.includes('/posts/') || href.includes('/permalink/')) {
-            postUrl = href;
-            break;
-          }
-        }
-
-        // Deduplicate by URL or text
-        const key = postUrl || text.slice(0, 100);
-        if (seen.has(key)) continue;
-        seen.add(key);
-
-        posts.push({ text: text.slice(0, 800), postUrl, postTs });
+        posts.push({ text: text.slice(0, 800), postUrl: href, postTs });
       }
 
-      // Fallback: if data-ft divs found nothing, scan all story links on page
+      // Hard fallback: if we still got nothing, return the full page text as one block.
+      // At minimum this tells us if keywords are visible at all on the page.
       if (posts.length === 0) {
-        for (const a of document.querySelectorAll('a[href*="story.php"], a[href*="story_fbid"], a[href*="/posts/"]')) {
-          const href = a.href;
-          if (!href || seen.has(href)) continue;
-          if (SKIP.some(s => href.includes(s))) continue;
-          seen.add(href);
-          const text = (a.closest('div') || a.parentElement || a).innerText || a.innerText;
-          if (!text || text.length < 15) continue;
-          posts.push({ text: text.slice(0, 800), postUrl: href, postTs: null });
+        const fullText = (document.body.innerText || '').trim();
+        if (fullText.length > 100) {
+          const anyStoryLink = Array.from(document.querySelectorAll('a[href]'))
+            .find(a => isStoryHref(a.href))?.href || 'https://mbasic.facebook.com/';
+          posts.push({ text: fullText.slice(0, 1500), postUrl: anyStoryLink, postTs: null, fullPage: true });
         }
       }
 
@@ -342,7 +349,7 @@ async function checkFeed(keywords, seedMode = false) {
       keywordHits++;
       results.push({
         fingerprint,
-        postUrl: post.postUrl || 'https://mbasic.facebook.com/',
+        postUrl: post.postUrl,
         postText: post.text,
         matchedKeywords: matched,
         postTs: post.postTs,

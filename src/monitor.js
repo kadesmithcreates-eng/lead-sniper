@@ -4,13 +4,15 @@ const { initBrowser, closeBrowser, checkFeed, takeDebugScreenshot } = require('.
 const { filterAndSummarize } = require('./gemini');
 const { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert } = require('./notify');
 
-const FEED_INTERVAL_MS = [120000, 180000]; // 2–3 min between sweeps (sweep itself takes ~1 min)
-const ZERO_ALERT_THRESHOLD = 30;           // ~2.5 hrs of empty sweeps before alerting
-const BROWSER_RESTART_EVERY = 20;         // restart browser every N sweeps (memory hygiene)
+const SWEEP_INTERVAL_MS = [120000, 180000]; // 2–3 min between sweeps while active
+const ACTIVE_DURATION_MS = 15 * 60 * 1000; // 15 min active (browser open, scanning)
+const SLEEP_DURATION_MS  = 15 * 60 * 1000; // 15 min sleep (browser fully closed)
+const ZERO_ALERT_THRESHOLD = 20;            // alert after N empty sweeps in a row
 
 const SEED_MODE = process.argv.includes('--seed');
 
 let sweepCount = 0;
+let consecutiveZero = 0;
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function rand(min, max) { return min + Math.random() * (max - min); }
@@ -25,13 +27,6 @@ async function runSweep(seedMode = false) {
   }
 
   sweepCount++;
-
-  // Periodic browser restart to prevent memory/session drift
-  if (sweepCount % BROWSER_RESTART_EVERY === 0) {
-    db.addLog('info', 'Scheduled browser restart');
-    await closeBrowser();
-    await initBrowser();
-  }
 
   let feedResult;
   try {
@@ -86,36 +81,26 @@ async function runSweep(seedMode = false) {
   return matchCount;
 }
 
-async function main() {
-  db.addLog('info', '🚀 Feed monitor starting...');
+// Run one 15-minute active period: browser open, sweeping every 2-3 min
+async function runActivePeriod() {
+  db.addLog('info', '▶️  Active period started — scanning for 15 min');
 
   try {
     await initBrowser();
-    db.addLog('info', 'Browser initialized');
   } catch (e) {
     db.addLog('error', `Browser init failed: ${e.message}`);
-    await sendAlert(`❌ Monitor failed to start: ${e.message}`);
-    process.exit(1);
-  }
-
-  if (SEED_MODE) {
-    db.addLog('info', '🌱 Seed mode: marking current feed posts as seen...');
-    await runSweep(true);
-    db.updateStatus({ seeded: 1 });
-    db.addLog('info', '✅ Seed done. Restart without --seed to begin monitoring.');
-    await closeBrowser();
-    process.exit(0);
+    await sendAlert(`❌ Monitor failed to start browser: ${e.message}`);
+    return;
   }
 
   db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
 
-  let consecutiveZero = 0;
-  let loopCounter = 0;
+  const activeUntil = Date.now() + ACTIVE_DURATION_MS;
 
-  while (true) {
-    loopCounter++;
+  while (Date.now() < activeUntil) {
     try {
       const matches = await runSweep(false);
+
       if (matches > 0) {
         consecutiveZero = 0;
         db.updateStatus({ last_post_found: new Date().toISOString(), consecutive_zero_sweeps: 0, current_sweep_posts: matches });
@@ -124,35 +109,69 @@ async function main() {
         db.updateStatus({ consecutive_zero_sweeps: consecutiveZero, current_sweep_posts: 0 });
       }
 
-      db.addLog('info', `[Loop #${loopCounter}] ${matches} match${matches !== 1 ? 'es' : ''} found`);
+      db.addLog('info', `[Sweep #${sweepCount}] ${matches} match${matches !== 1 ? 'es' : ''} — ${consecutiveZero} empty in a row`);
 
-      // Dead man's switch
       if (consecutiveZero >= ZERO_ALERT_THRESHOLD) {
-        const msg = `⚠️ Feed monitor may be broken — 0 matches in last ${consecutiveZero} sweeps (~${Math.round(consecutiveZero * 4)} min).\nPossible causes: session expired, IP blocked, Facebook layout change.\nDashboard: ${process.env.DASHBOARD_URL || 'check your VPS'}`;
-        await sendAlert(msg);
-        const screenshot = await takeDebugScreenshot();
-        if (screenshot) db.addLog('warn', `Debug screenshot: ${screenshot}`);
-        await closeBrowser();
-        await initBrowser();
+        await sendAlert(`⚠️ 0 articles found in last ${consecutiveZero} sweeps. Possible cookie/session issue.\nCheck: C:\\lead-sniper\\data\\page-debug.html`);
         consecutiveZero = 0;
       }
     } catch (e) {
+      if (e.message === 'SESSION_EXPIRED') {
+        db.addLog('error', 'Session expired — stopping active period, need new cookies');
+        db.updateStatus({ session_alive: 0 });
+        await sendSessionExpiredAlert(process.env.DASHBOARD_URL || 'http://localhost:3000');
+        break;
+      }
       db.addLog('error', `Sweep error: ${e.message}`);
-      await sendAlert(`❌ Monitor sweep error: ${e.message}`);
+      // Browser crash — try to recover within this active period
       try {
         await closeBrowser();
-        await new Promise(r => setTimeout(r, 5000)); // let OS reclaim memory before restarting
+        await sleep(3000);
         await initBrowser();
         db.addLog('info', 'Browser restarted after crash');
       } catch (restartErr) {
-        db.addLog('error', `Browser restart failed: ${restartErr.message}`);
+        db.addLog('error', `Restart failed: ${restartErr.message}`);
+        break;
       }
     }
 
     db.pruneSeenPosts();
-    const delay = rand(...FEED_INTERVAL_MS);
-    db.addLog('info', `Next check in ${Math.round(delay / 1000)}s`);
+
+    const remaining = activeUntil - Date.now();
+    if (remaining < 5000) break; // active period ending
+
+    const delay = Math.min(rand(...SWEEP_INTERVAL_MS), remaining - 2000);
+    db.addLog('info', `Next sweep in ${Math.round(delay / 1000)}s (${Math.round(remaining / 60000)}m left in session)`);
     await sleep(delay);
+  }
+
+  await closeBrowser();
+  db.addLog('info', `⏸️  Active period done — browser closed, sleeping ${SLEEP_DURATION_MS / 60000} min`);
+}
+
+async function main() {
+  db.addLog('info', '🚀 Feed monitor starting (15-min on / 15-min off cycle)');
+
+  if (SEED_MODE) {
+    db.addLog('info', '🌱 Seed mode: marking current feed posts as seen...');
+    try {
+      await initBrowser();
+      await runSweep(true);
+      db.updateStatus({ seeded: 1 });
+      db.addLog('info', '✅ Seed done. Restart without --seed to begin monitoring.');
+    } finally {
+      await closeBrowser();
+    }
+    process.exit(0);
+  }
+
+  let cycleNum = 0;
+  while (true) {
+    cycleNum++;
+    db.addLog('info', `=== Cycle #${cycleNum} ===`);
+    await runActivePeriod();
+    db.addLog('info', `😴 Sleeping ${SLEEP_DURATION_MS / 60000} min before next cycle...`);
+    await sleep(SLEEP_DURATION_MS);
   }
 }
 
