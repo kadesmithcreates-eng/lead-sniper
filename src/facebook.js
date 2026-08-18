@@ -256,99 +256,78 @@ async function checkFeed(keywords, seedMode = false) {
   const results = [];
 
   try {
-    await page.goto('https://mbasic.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 30000 });
+    // Use www.facebook.com — mbasic gets redirected to the full site for real Chromium browsers.
+    // Wait for networkidle so React has time to render the feed articles.
+    await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 45000 });
 
     const url = page.url();
     if (url.includes('/login') || url.includes('login.php')) throw new Error('SESSION_EXPIRED');
 
-    // Save snapshot every time for debugging
+    // Wait for the feed to render — the feed container appears after React boots
+    try {
+      await page.waitForSelector('[role="feed"], [data-pagelet="FeedUnit_0"], div[role="article"]', { timeout: 15000 });
+    } catch {
+      // Feed didn't appear — might be a checkpoint or slow load; continue anyway
+    }
+
+    // Human interaction while feed loads more content
+    await humanInteract(page);
+
+    // Save snapshot for debugging
     try {
       const html = await page.content();
       fs.writeFileSync(path.join(__dirname, '../data/page-debug.html'), html);
     } catch {}
 
-    await page.waitForTimeout(1500 + Math.random() * 1000);
-
-    // Click "More" to load extra posts if available
-    try {
-      const moreLink = await page.$('a[href*="timelineSectionLoadingID"], a[href*="more_stories"], a[href*="LastCursor"], a[href*="cursor"]');
-      if (moreLink) {
-        await moreLink.click();
-        await page.waitForTimeout(2000 + Math.random() * 1000);
-      }
-    } catch {}
-
     const cutoff = Date.now() - 8 * 60 * 60 * 1000;
 
-    const rawPosts = await page.evaluate((cutoffMs) => {
-      const SKIP = ['/login', '/messages/', '/marketplace/', '/events/', 'javascript:', '/notifications/', 'l.facebook.com'];
-      const seen = new Set();
-      const posts = [];
+    // www.facebook.com uses div[role="article"] for every feed post — same selector as groups
+    const articles = await page.$$('div[role="article"]');
 
-      // mbasic story links — Like/Comment buttons all link to story.php
-      // Also catch /permalink/ (group posts) and /posts/ (profile posts)
-      function isStoryHref(h) {
-        if (!h || SKIP.some(s => h.includes(s))) return false;
-        return h.includes('story.php') || h.includes('story_fbid') ||
-               h.includes('/permalink/') || h.includes('/posts/');
-      }
+    const rawPosts = [];
+    const seenUrls = new Set();
 
-      // Walk UP from a link to find a natural story container.
-      // mbasic wraps each story in a <div> that contains author + text + timestamp + actions.
-      // We climb until we find a div whose text is between 40 and 3000 chars.
-      function getStoryContainer(el) {
-        let node = el;
-        let best = el.parentElement;
-        for (let i = 0; i < 10; i++) {
-          if (!node.parentElement || node.parentElement === document.body) break;
-          node = node.parentElement;
-          const len = (node.innerText || '').trim().length;
-          if (len >= 40 && len <= 3000) best = node;
-          if (len > 3000) break; // gone too far up — stop
+    for (const article of articles) {
+      try {
+        const rawText = (await article.innerText()).trim();
+        if (!rawText || rawText.length < 20) continue;
+
+        // Find permalink for this post
+        let postUrl = null;
+        const links = await article.$$('a[href]');
+        for (const link of links) {
+          const href = await link.getAttribute('href');
+          if (!href) continue;
+          if (href.includes('/posts/') || href.includes('story_fbid') ||
+              href.includes('/permalink/') || href.includes('story.php')) {
+            postUrl = href.startsWith('http') ? href : `https://www.facebook.com${href}`;
+            break;
+          }
         }
-        return best;
-      }
+        if (!postUrl) continue;
 
-      // Collect all story-linked <a> tags
-      const links = Array.from(document.querySelectorAll('a[href]'))
-        .filter(a => isStoryHref(a.href));
+        const baseUrl = postUrl.split('?')[0];
+        if (seenUrls.has(baseUrl)) continue;
+        seenUrls.add(baseUrl);
 
-      for (const link of links) {
-        const href = link.href;
-        const baseUrl = href.split('&')[0]; // strip extra params for dedup
-        if (seen.has(baseUrl)) continue;
-        seen.add(baseUrl);
-
-        const container = getStoryContainer(link);
-        const text = (container?.innerText || '').trim();
-        if (text.length < 25) continue;
-
-        // Timestamp: mbasic uses <abbr data-utime="..."> inside the story
+        // Timestamp
         let postTs = null;
         try {
-          const abbr = container?.querySelector('abbr[data-utime]');
-          if (abbr) postTs = parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
+          postTs = await article.evaluate(el => {
+            const time = el.querySelector('time[datetime]');
+            if (time) return new Date(time.getAttribute('datetime')).getTime();
+            const abbr = el.querySelector('abbr[data-utime]');
+            if (abbr) return parseInt(abbr.getAttribute('data-utime'), 10) * 1000;
+            return null;
+          });
+          if (postTs !== null && postTs < cutoff) continue;
         } catch {}
-        if (postTs !== null && postTs < cutoffMs) continue;
 
-        posts.push({ text: text.slice(0, 800), postUrl: href, postTs });
-      }
+        rawPosts.push({ text: rawText.slice(0, 800), postUrl, postTs });
+      } catch {}
+    }
 
-      // Hard fallback: if we still got nothing, return the full page text as one block.
-      // At minimum this tells us if keywords are visible at all on the page.
-      if (posts.length === 0) {
-        const fullText = (document.body.innerText || '').trim();
-        if (fullText.length > 100) {
-          const anyStoryLink = Array.from(document.querySelectorAll('a[href]'))
-            .find(a => isStoryHref(a.href))?.href || 'https://mbasic.facebook.com/';
-          posts.push({ text: fullText.slice(0, 1500), postUrl: anyStoryLink, postTs: null, fullPage: true });
-        }
-      }
-
-      return posts;
-    }, cutoff);
-
-    const withUrl = rawPosts.filter(p => p.postUrl).length;
+    const withUrl = rawPosts.length;
     let keywordHits = 0;
 
     for (const post of rawPosts) {
