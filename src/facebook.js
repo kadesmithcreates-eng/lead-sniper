@@ -302,26 +302,30 @@ async function checkFeed(keywords, seedMode = false) {
     const rawPosts = [];
     const seenUrls = new Set();
 
+    console.log(`[checkFeed] found ${articles.length} article elements after scroll`);
+
     for (const article of articles) {
       try {
         const rawText = (await article.innerText()).trim();
-        if (!rawText || rawText.length < 20) continue;
+        if (!rawText || rawText.length < 30) continue;
 
-        // Find permalink for this post
+        // Find a permalink for this post — try all common Facebook URL patterns
         let postUrl = null;
         const links = await article.$$('a[href]');
         for (const link of links) {
           const href = await link.getAttribute('href');
-          if (!href) continue;
+          if (!href || href === '#' || href.startsWith('javascript')) continue;
           if (href.includes('/posts/') || href.includes('story_fbid') ||
-              href.includes('/permalink/') || href.includes('story.php')) {
+              href.includes('/permalink/') || href.includes('story.php') ||
+              href.includes('/photo/') || href.includes('/video/') ||
+              href.includes('/reel/') || href.includes('/watch/')) {
             postUrl = href.startsWith('http') ? href : `https://www.facebook.com${href}`;
             break;
           }
         }
-        if (!postUrl) continue;
 
-        const baseUrl = postUrl.split('?')[0];
+        // Fall back to text-based fingerprint if no URL found — still process the article
+        const baseUrl = postUrl ? postUrl.split('?')[0] : 'txt:' + rawText.slice(0, 80);
         if (seenUrls.has(baseUrl)) continue;
         seenUrls.add(baseUrl);
 
