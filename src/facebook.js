@@ -11,12 +11,11 @@ chromium.use(StealthPlugin());
 let context = null;
 const USER_DATA_DIR = path.join(__dirname, '../data/browser-profile');
 
-// Rotate between a few realistic mobile UAs so the fingerprint isn't identical every session
+// Desktop UAs — we're using a real desktop Chromium, so match it
 const USER_AGENTS = [
-  'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-  'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-  'Mozilla/5.0 (Linux; Android 12; moto g(60)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36',
-  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+  'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
 ];
 
 function buildProxyConfig() {
@@ -37,9 +36,9 @@ async function initBrowser() {
   // so checking after launch always sees the file and skips cookie import.
   const isFirstRun = !fs.existsSync(path.join(USER_DATA_DIR, 'Default', 'Preferences'));
 
-  // Slightly randomize viewport each session — no two sessions look identical
-  const width  = 375 + Math.floor(Math.random() * 40);
-  const height = 812 + Math.floor(Math.random() * 80);
+  // Desktop viewport — matches actual Chromium capabilities
+  const width  = 1280 + Math.floor(Math.random() * 160);
+  const height = 768  + Math.floor(Math.random() * 132);
   const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
 
   context = await chromium.launchPersistentContext(USER_DATA_DIR, {
@@ -56,6 +55,7 @@ async function initBrowser() {
       '--mute-audio',
       '--no-default-browser-check',
       '--disable-notifications',
+      `--window-size=${width},${height}`,
     ],
     userAgent: ua,
     viewport: { width, height },
