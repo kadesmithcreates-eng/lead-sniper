@@ -257,21 +257,26 @@ async function checkFeed(keywords, seedMode = false) {
 
   try {
     // Use www.facebook.com — mbasic gets redirected to the full site for real Chromium browsers.
-    // Wait for networkidle so React has time to render the feed articles.
-    await page.goto('https://www.facebook.com/', { waitUntil: 'domcontentloaded', timeout: 45000 });
+    await page.goto('https://www.facebook.com/', { waitUntil: 'load', timeout: 45000 });
 
     const url = page.url();
     if (url.includes('/login') || url.includes('login.php')) throw new Error('SESSION_EXPIRED');
 
-    // Wait for the feed to render — the feed container appears after React boots
+    // Let React fully boot and render the initial feed
+    await page.waitForTimeout(4000 + Math.random() * 2000);
+
+    // Wait for at least one article to appear
     try {
-      await page.waitForSelector('[role="feed"], [data-pagelet="FeedUnit_0"], div[role="article"]', { timeout: 15000 });
+      await page.waitForSelector('div[role="article"]', { timeout: 15000 });
     } catch {
-      // Feed didn't appear — might be a checkpoint or slow load; continue anyway
+      // No articles visible yet — checkpoint or very slow load, continue anyway
     }
 
-    // Human interaction while feed loads more content
+    // Scroll to trigger lazy-loading of more posts
     await humanInteract(page);
+
+    // Wait for scroll-triggered posts to render before scraping
+    await page.waitForTimeout(3000 + Math.random() * 2000);
 
     // Save snapshot for debugging
     try {
