@@ -6,8 +6,18 @@ const path = require('path');
 
 chromium.use(StealthPlugin());
 
-let browser = null;
+// Persistent context IS the browser — no separate browser object needed.
+// Saves cookies, localStorage, history, and full browser state between sessions.
 let context = null;
+const USER_DATA_DIR = path.join(__dirname, '../data/browser-profile');
+
+// Rotate between a few realistic mobile UAs so the fingerprint isn't identical every session
+const USER_AGENTS = [
+  'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 13; SM-S918B) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (Linux; Android 12; moto g(60)) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Mobile Safari/537.36',
+  'Mozilla/5.0 (iPhone; CPU iPhone OS 17_4 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Mobile/15E148 Safari/604.1',
+];
 
 function buildProxyConfig() {
   if (!process.env.IPROYAL_USERNAME) return {};
@@ -15,79 +25,102 @@ function buildProxyConfig() {
     proxy: {
       server: `http://${process.env.IPROYAL_PROXY_HOST || 'geo.iproyal.com'}:${process.env.IPROYAL_PROXY_PORT || '12321'}`,
       username: process.env.IPROYAL_USERNAME,
-      password: process.env.IPROYAL_PASSWORD
-    }
+      password: process.env.IPROYAL_PASSWORD,
+    },
   };
 }
 
 async function initBrowser() {
-  if (browser) await closeBrowser();
+  if (context) await closeBrowser();
 
-  browser = await chromium.launch({
-    headless: true,
+  // Slightly randomize viewport each session — no two sessions look identical
+  const width  = 375 + Math.floor(Math.random() * 40);
+  const height = 812 + Math.floor(Math.random() * 80);
+  const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+
+  // launchPersistentContext saves the full browser profile to disk:
+  // cookies, localStorage, cache, history — so every session looks like
+  // a returning user, not a fresh browser install.
+  // headless: false removes 40+ detectable headless signals.
+  context = await chromium.launchPersistentContext(USER_DATA_DIR, {
+    headless: false,
     args: [
       '--no-sandbox',
       '--disable-setuid-sandbox',
       '--disable-dev-shm-usage',
-      '--disable-gpu',
       '--disable-blink-features=AutomationControlled',
       '--no-first-run',
-      '--disable-extensions',
       '--disable-background-networking',
       '--disable-sync',
       '--disable-translate',
-      '--hide-scrollbars',
-      '--metrics-recording-only',
       '--mute-audio',
       '--no-default-browser-check',
-      '--safebrowsing-disable-auto-update',
-      '--js-flags=--max-old-space-size=512',
+      '--start-minimized',
     ],
-    ...buildProxyConfig()
-  });
-
-  // Mobile UA — required for mbasic.facebook.com to render properly
-  context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Linux; Android 10; K) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36',
-    viewport: { width: 390, height: 844 },
+    userAgent: ua,
+    viewport: { width, height },
     locale: 'en-US',
-    timezoneId: 'America/New_York',
-    permissions: [],
+    timezoneId: 'America/Chicago',
+    ...buildProxyConfig(),
   });
 
-  // Load Facebook session cookies
-  const cookiesPath = path.join(__dirname, '../data/cookies.json');
-  if (fs.existsSync(cookiesPath)) {
-    try {
-      const raw = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
-      // Support both Cookie-Editor format (array of objects with name/value/domain)
-      // and raw Playwright cookie format
-      const cookies = raw.map(c => ({
-        name: c.name,
-        value: c.value,
-        domain: c.domain || '.facebook.com',
-        path: c.path || '/',
-        httpOnly: c.httpOnly || false,
-        secure: c.secure || true,
-        sameSite: ({no_restriction:'None',lax:'Lax',strict:'Strict'})[c.sameSite] || 'None',
-      }));
-      await context.addCookies(cookies);
-    } catch (e) {
-      console.error('Failed to load cookies:', e.message);
+  // Only inject cookies.json on the very first run (no saved profile yet).
+  // After first run the profile handles its own session persistence.
+  const profileExists = fs.existsSync(path.join(USER_DATA_DIR, 'Default', 'Preferences'));
+  if (!profileExists) {
+    const cookiesPath = path.join(__dirname, '../data/cookies.json');
+    if (fs.existsSync(cookiesPath)) {
+      try {
+        const raw = JSON.parse(fs.readFileSync(cookiesPath, 'utf8'));
+        const cookies = raw.map(c => ({
+          name: c.name,
+          value: c.value,
+          domain: c.domain || '.facebook.com',
+          path: c.path || '/',
+          httpOnly: c.httpOnly || false,
+          secure: c.secure !== false,
+          sameSite: ({ no_restriction: 'None', lax: 'Lax', strict: 'Strict' })[c.sameSite] || 'None',
+        }));
+        await context.addCookies(cookies);
+        console.log('First run: loaded cookies from cookies.json');
+      } catch (e) {
+        console.error('Failed to load cookies:', e.message);
+      }
+    } else {
+      console.warn('No cookies.json found — place exported Facebook cookies at data/cookies.json');
     }
-  } else {
-    console.warn('No cookies.json found. Place your exported Facebook cookies at data/cookies.json');
   }
-
-  return context;
 }
 
 async function closeBrowser() {
-  try {
-    if (browser) await browser.close();
-  } catch {}
-  browser = null;
+  try { if (context) await context.close(); } catch {}
   context = null;
+}
+
+// Realistic human interaction: bezier-curved mouse movement + mouse-wheel scrolling.
+// Mouse wheel is harder to distinguish from a real user than window.scrollBy().
+async function humanInteract(page) {
+  // Move cursor around in natural arcs
+  const moves = 2 + Math.floor(Math.random() * 3);
+  for (let i = 0; i < moves; i++) {
+    const x = 40 + Math.random() * (290);
+    const y = 80 + Math.random() * 500;
+    await page.mouse.move(x, y, { steps: 8 + Math.floor(Math.random() * 18) });
+    await page.waitForTimeout(120 + Math.random() * 700);
+  }
+
+  // Scroll with mouse wheel in chunks like a human reading
+  const scrolls = 3 + Math.floor(Math.random() * 4);
+  for (let i = 0; i < scrolls; i++) {
+    const amount = 100 + Math.random() * 380;
+    await page.mouse.wheel(0, amount);
+    await page.waitForTimeout(600 + Math.random() * 1600);
+    // Occasionally scroll back up a bit — humans re-read things
+    if (Math.random() < 0.35) {
+      await page.mouse.wheel(0, -(40 + Math.random() * 130));
+      await page.waitForTimeout(350 + Math.random() * 700);
+    }
+  }
 }
 
 function getPostFingerprint(url, text) {
@@ -118,22 +151,10 @@ async function checkGroup(group, keywords, seedMode = false) {
       return { results: [], groupName: group.name || group.url };
     }
 
-    // Human-like pause after page load
-    await page.waitForTimeout(2000 + Math.random() * 3000);
-
-    // Human-like scroll pattern — scroll down in chunks with pauses, occasionally back up
-    const scrollSteps = 2 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < scrollSteps; i++) {
-      const scrollAmount = 400 + Math.floor(Math.random() * 500);
-      await page.evaluate(amt => window.scrollBy(0, amt), scrollAmount);
-      await page.waitForTimeout(800 + Math.random() * 1200);
-      // Occasionally scroll back up slightly like a human re-reading
-      if (Math.random() < 0.3) {
-        await page.evaluate(() => window.scrollBy(0, -(80 + Math.random() * 120)));
-        await page.waitForTimeout(400 + Math.random() * 600);
-      }
-    }
-    await page.waitForTimeout(500 + Math.random() * 1000);
+    // Human-like pause after page load, then interact naturally
+    await page.waitForTimeout(1500 + Math.random() * 2000);
+    await humanInteract(page);
+    await page.waitForTimeout(500 + Math.random() * 800);
 
     // Try to grab group name
     let groupName = group.name || group.url;
@@ -232,7 +253,6 @@ async function checkFeed(keywords, seedMode = false) {
   try {
     page = await context.newPage();
   } catch {
-    browser = null;
     context = null;
     throw new Error('Browser not initialized');
   }

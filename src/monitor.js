@@ -5,8 +5,14 @@ const { filterAndSummarize } = require('./gemini');
 const { sendDiscord, sendTelegram, sendAlert, sendSessionExpiredAlert } = require('./notify');
 
 const SWEEP_INTERVAL_MS = [120000, 180000]; // 2–3 min between sweeps while active
-const ACTIVE_DURATION_MS = 15 * 60 * 1000; // 15 min active (browser open, scanning)
-const SLEEP_DURATION_MS  = 15 * 60 * 1000; // 15 min sleep (browser fully closed)
+
+// Randomized cycle durations — no two sessions look identical to Facebook's timing detection.
+// Occasionally throw in a longer sleep (1-in-6 chance of 40-60min) like a human who stepped away.
+function getActiveDuration() { return (12 + Math.random() * 6) * 60 * 1000; }  // 12–18 min
+function getSleepDuration() {
+  if (Math.random() < 0.17) return (40 + Math.random() * 20) * 60 * 1000;     // 40–60 min (long break)
+  return (13 + Math.random() * 7) * 60 * 1000;                                 // 13–20 min (normal)
+}
 const ZERO_ALERT_THRESHOLD = 20;            // alert after N empty sweeps in a row
 
 const SEED_MODE = process.argv.includes('--seed');
@@ -95,7 +101,9 @@ async function runActivePeriod() {
 
   db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
 
-  const activeUntil = Date.now() + ACTIVE_DURATION_MS;
+  const activeDuration = getActiveDuration();
+  const activeUntil = Date.now() + activeDuration;
+  db.addLog('info', `Active window: ${Math.round(activeDuration / 60000)} min`);
 
   while (Date.now() < activeUntil) {
     try {
@@ -146,7 +154,7 @@ async function runActivePeriod() {
   }
 
   await closeBrowser();
-  db.addLog('info', `⏸️  Active period done — browser closed, sleeping ${SLEEP_DURATION_MS / 60000} min`);
+  db.addLog('info', `⏸️  Active period done — browser closed`);
 }
 
 async function main() {
@@ -170,8 +178,9 @@ async function main() {
     cycleNum++;
     db.addLog('info', `=== Cycle #${cycleNum} ===`);
     await runActivePeriod();
-    db.addLog('info', `😴 Sleeping ${SLEEP_DURATION_MS / 60000} min before next cycle...`);
-    await sleep(SLEEP_DURATION_MS);
+    const sleepMs = getSleepDuration();
+    db.addLog('info', `😴 Sleeping ${Math.round(sleepMs / 60000)} min before next cycle...`);
+    await sleep(sleepMs);
   }
 }
 
