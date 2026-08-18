@@ -55,7 +55,6 @@ async function initBrowser() {
       '--disable-translate',
       '--mute-audio',
       '--no-default-browser-check',
-      '--start-minimized',
       '--disable-notifications',
     ],
     userAgent: ua,

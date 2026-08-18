@@ -87,16 +87,18 @@ async function runSweep(seedMode = false) {
   return matchCount;
 }
 
-// Run one 15-minute active period: browser open, sweeping every 2-3 min
-async function runActivePeriod() {
-  db.addLog('info', '▶️  Active period started — scanning for 15 min');
+// Run one active sweep period — browser stays open across cycles
+async function runActivePeriod(firstRun = false) {
+  db.addLog('info', '▶️  Active period started');
 
-  try {
-    await initBrowser();
-  } catch (e) {
-    db.addLog('error', `Browser init failed: ${e.message}`);
-    await sendAlert(`❌ Monitor failed to start browser: ${e.message}`);
-    return;
+  if (firstRun) {
+    try {
+      await initBrowser();
+    } catch (e) {
+      db.addLog('error', `Browser init failed: ${e.message}`);
+      await sendAlert(`❌ Monitor failed to start browser: ${e.message}`);
+      return;
+    }
   }
 
   db.updateStatus({ session_alive: 1, last_heartbeat: new Date().toISOString() });
@@ -131,7 +133,6 @@ async function runActivePeriod() {
         break;
       }
       db.addLog('error', `Sweep error: ${e.message}`);
-      // Browser crash — try to recover within this active period
       try {
         await closeBrowser();
         await sleep(3000);
@@ -153,8 +154,7 @@ async function runActivePeriod() {
     await sleep(delay);
   }
 
-  await closeBrowser();
-  db.addLog('info', `⏸️  Active period done — browser closed`);
+  db.addLog('info', `⏸️  Active period done — browser stays open, sleeping`);
 }
 
 async function main() {
@@ -177,7 +177,7 @@ async function main() {
   while (true) {
     cycleNum++;
     db.addLog('info', `=== Cycle #${cycleNum} ===`);
-    await runActivePeriod();
+    await runActivePeriod(cycleNum === 1);
     const sleepMs = getSleepDuration();
     db.addLog('info', `😴 Sleeping ${Math.round(sleepMs / 60000)} min before next cycle...`);
     await sleep(sleepMs);
